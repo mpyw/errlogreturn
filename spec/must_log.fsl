@@ -1,0 +1,56 @@
+// A helper counts as logging its argument only when every path that returns
+// logs it. A path on which the argument is known to be nil counts as logging
+// it, since a nil error has nothing to log.
+//
+// A caller that passes an error to such a helper and then returns it is
+// reported. The report is only right if the helper really logged that error,
+// so the property checked here is: whenever the summary says "logs", and the
+// error is a real one, the helper logged it.
+//
+// The helper's shape is one of:
+//
+//   Always      log(err)
+//   IfNonNil    if err != nil { log(err) }, or: if err == nil { return }; log(err)
+//   IfOther     if cond { log(err) }, for any condition but a nil check
+//   Recursive   logs on the base case, and calls itself on the other path
+//   Never       does not log err
+//
+// A recursive call reads the summary still being built, which says nothing
+// yet. That makes Recursive a helper the summary does not count, though it
+// logs. MissedWhenRecursive witnesses the report given up for that.
+spec MustLog {
+  enum Shape { Always, IfNonNil, IfOther, Recursive, Never }
+
+  state {
+    ran: Bool, shape: Shape, nonNil: Bool, cond: Bool,
+    logged: Bool, summaryLogs: Bool
+  }
+
+  init {
+    ran = false  shape = Never  nonNil = false  cond = false
+    logged = false  summaryLogs = false
+  }
+
+  // What running the helper once logs.
+  def logs(s: Shape, nn: Bool, c: Bool) =
+    s == Always or s == Recursive or (s == IfNonNil and nn) or (s == IfOther and c)
+
+  // What the must-analysis concludes from the helper's body.
+  def summarized(s: Shape) = s == Always or s == IfNonNil
+
+  action run(s: Shape, nn: Bool, c: Bool) {
+    requires not ran
+    ran = true  shape = s  nonNil = nn  cond = c
+    logged = logs(s, nn, c)
+    summaryLogs = summarized(s)
+  }
+
+  terminal { ran }
+
+  // The property the caller's report rests on.
+  invariant ReportMeansLogged { ran and summaryLogs and nonNil => logged }
+
+  reachable CountsANilCheck { ran and shape == IfNonNil and summaryLogs }
+  reachable IgnoresOtherConditions { ran and shape == IfOther and cond and logged and not summaryLogs }
+  reachable MissedWhenRecursive { ran and shape == Recursive and logged and not summaryLogs }
+}
