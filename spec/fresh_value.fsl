@@ -1,0 +1,80 @@
+// A value defined again after the log is a new value.
+//
+// SSA gives one name to a call in a loop body, but each iteration makes a new
+// error. The path walk from a log call records the blocks it enters, and a
+// value defined in one of them is not the value that was logged. This spec
+// checks that rule against what happens at run time.
+//
+// The program is one loop:
+//
+//   for {
+//     err := do()        define: a new error each time
+//     log(err)           log: optional, any number of times
+//     return err         ret: or go round again
+//   }
+//
+// gen numbers the error the variable holds. loggedGens is every error that was
+// ever logged, which is the ground truth. loggedSinceDefine is what the rule
+// looks at: a log with no definition of err between it and the return.
+//
+// ASSUME-1: MAXGEN bounds the number of iterations. It is a modeling bound,
+// not a claim about loops.
+spec FreshValue {
+  const MAXGEN = 3
+  type Gen = 0..MAXGEN
+  enum Pc { Define, Body, Returned }
+
+  state {
+    pc: Pc, gen: Gen,
+    loggedGens: Set<Gen>, loggedSinceDefine: Bool,
+    reported: Bool, doubled: Bool
+  }
+
+  init {
+    pc = Define  gen = 0
+    loggedGens = Set {}  loggedSinceDefine = false
+    reported = false  doubled = false
+  }
+
+  action define() {
+    requires pc == Define  requires gen < MAXGEN
+    pc = Body  gen = gen + 1  loggedSinceDefine = false
+  }
+
+  action log() {
+    requires pc == Body
+    loggedGens = loggedGens.add(gen)  loggedSinceDefine = true
+  }
+
+  action loop() {
+    requires pc == Body
+    pc = Define
+  }
+
+  action ret() {
+    requires pc == Body
+    pc = Returned
+    reported = loggedSinceDefine
+    doubled = loggedGens.contains(gen)
+  }
+
+  terminal { pc == Returned or (pc == Define and gen == MAXGEN) }
+
+  // The rule never reports an error that was not logged.
+  invariant NeverReportsAFreshValue { reported => doubled }
+  // In this shape it is also exact: every error logged and returned is reported.
+  invariant ReportsEveryDouble { doubled => reported }
+
+  // What makes the two inductive: the flag says exactly whether the current
+  // error was logged, and no error from the future was.
+  invariant FlagTracksCurrentError { loggedSinceDefine == loggedGens.contains(gen) }
+  invariant NothingLoggedAhead { forall g: Gen { loggedGens.contains(g) => g <= gen } }
+  invariant ReportsOnlyOnReturn { (reported or doubled) => pc == Returned }
+
+  reachable Reported { reported }
+  // The case the rule exists for: an error logged in one iteration, then a new
+  // one returned in the next. It must stay silent.
+  reachable SilentOnTheNextIteration {
+    pc == Returned and not reported and loggedGens.size() > 0
+  }
+}

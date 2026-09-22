@@ -1,0 +1,62 @@
+// FAILS ON PURPOSE. This is the rule fresh_value.fsl replaced, and the
+// counterexample is the reason it was replaced.
+//
+// The rule compares SSA values and nothing else. A call in a loop body is one
+// SSA value in every iteration, so an error logged in one iteration matches a
+// new error returned in the next. woodpecker's cli/pipeline/purge.go was
+// reported for exactly this before the rule changed.
+//
+// The program is the loop of fresh_value.fsl:
+//
+//   for {
+//     err := do()
+//     log(err)
+//     return err
+//   }
+//
+// ASSUME-1: MAXGEN bounds the number of iterations. It is a modeling bound,
+// not a claim about loops.
+spec FreshValueNaive {
+  const MAXGEN = 3
+  type Gen = 0..MAXGEN
+  enum Pc { Define, Body, Returned }
+
+  state {
+    pc: Pc, gen: Gen,
+    loggedGens: Set<Gen>,
+    reported: Bool, doubled: Bool
+  }
+
+  init {
+    pc = Define  gen = 0
+    loggedGens = Set {}
+    reported = false  doubled = false
+  }
+
+  action define() {
+    requires pc == Define  requires gen < MAXGEN
+    pc = Body  gen = gen + 1
+  }
+
+  action log() {
+    requires pc == Body
+    loggedGens = loggedGens.add(gen)
+  }
+
+  action loop() {
+    requires pc == Body
+    pc = Define
+  }
+
+  // Any earlier log of the same SSA value counts.
+  action ret() {
+    requires pc == Body
+    pc = Returned
+    reported = loggedGens.size() > 0
+    doubled = loggedGens.contains(gen)
+  }
+
+  terminal { pc == Returned or (pc == Define and gen == MAXGEN) }
+
+  invariant NeverReportsAFreshValue { reported => doubled }
+}

@@ -117,4 +117,8 @@ go test ./...    # analysistest over testdata/src
 - A report is on the statement's first line, so a `// want` for a multi-line call or a `defer func() {` goes on that line.
 - `paths/paths.go` holds the regressions from the corpus runs: `nextIteration*` and `deferClosureOwnError`. Keep them when touching the path walk.
 
+### Formal specs
+
+`spec/*.fsl` model the three rules that came out of the corpus runs, each beside the rule it replaced. `spec/README.md` lists what each proves, and `spec/verify.sh` is the gate. **When one of those rules changes, change its spec first.** A proved spec that no longer matches the code is worse than none.
+
 Before a release, run the binary over a few real applications with heavy logging, and read every report. The corpus used so far: usememos/memos, pocketbase/pocketbase, gotify/server, woodpecker-ci/woodpecker. Every report there that remained after the fixes above was a genuine log-and-return.
