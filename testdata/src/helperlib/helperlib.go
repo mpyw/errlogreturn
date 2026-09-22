@@ -1,0 +1,43 @@
+// Package helperlib is imported by crosspkg, so that its summaries reach the
+// caller as facts.
+package helperlib
+
+import (
+	"fmt"
+	"log/slog"
+)
+
+func LogErr(err error) { // want LogErr:"logs p0"
+	slog.Error("failed", "err", err)
+}
+
+func Wrap(err error, msg string) error { // want Wrap:"carries p0→r0, carries p1→r0"
+	return &wrapped{cause: err, msg: msg}
+}
+
+type wrapped struct {
+	cause error
+	msg   string
+}
+
+func (w *wrapped) Error() string { return w.msg + ": " + w.cause.Error() } // want Error:"carries p0→r0"
+
+type Logger struct{ base *slog.Logger }
+
+func (l *Logger) Failure(err error) { // want Failure:"logs p1"
+	l.base.Error("failure", "err", err)
+}
+
+// Reporter is implemented elsewhere; the directive says what every
+// implementation does.
+type Reporter interface {
+	//errlogreturn:sink
+	Report(msg string, args ...any) // want Report:"sink"
+}
+
+// Remote sends its arguments to a service the analysis cannot see.
+//
+//errlogreturn:sink
+func Remote(args ...any) { // want Remote:"sink"
+	_ = fmt.Sprint(args...)
+}
