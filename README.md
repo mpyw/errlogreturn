@@ -181,9 +181,9 @@ helpers/helpers.go:12:2: 	returned here
 | `log` | `Print`, `Printf`, `Println`, `(*Logger).Output` | `Fatal*`, `Panic*` |
 | `fmt` | `Print*`, and `Fprint*` to `os.Stdout` or `os.Stderr` | `Fprint*` to any other writer |
 | `log/slog` | `Info`, `Warn`, `Error` and their `Context` forms | `Debug`, and `Log` below `LevelInfo` |
-| `github.com/rs/zerolog` | An event from `Info`, `Warn`, `Error`, `Err` or `Log`, sent with `Msg`, `Msgf`, `MsgFunc` or `Send` | `Debug`, `Trace`, `Fatal`, `Panic`, and an event never sent |
-| `go.uber.org/zap` | `Info`, `Warn`, `Error`, `DPanic`, and the sugared forms | `Debug`, `Fatal`, `Panic` |
-| `github.com/sirupsen/logrus` | `Info`, `Warn`, `Warning`, `Error`, `Print`, and their `f` and `ln` forms | `Debug`, `Trace`, `Fatal`, `Panic` |
+| [`github.com/rs/zerolog`](https://github.com/rs/zerolog) | An event from `Info`, `Warn`, `Error`, `Err` or `Log`, sent with `Msg`, `Msgf`, `MsgFunc` or `Send` | `Debug`, `Trace`, `Fatal`, `Panic`, and an event never sent |
+| [`go.uber.org/zap`](https://github.com/uber-go/zap) | `Info`, `Warn`, `Error`, `DPanic`, and the sugared forms | `Debug`, `Fatal`, `Panic` |
+| [`github.com/sirupsen/logrus`](https://github.com/sirupsen/logrus) | `Info`, `Warn`, `Warning`, `Error`, `Print`, and their `f` and `ln` forms | `Debug`, `Trace`, `Fatal`, `Panic` |
 
 > [!NOTE]
 > A debug line traces what happened. It does not handle the failure. A fatal or panic call never returns, so no `return` follows it.
