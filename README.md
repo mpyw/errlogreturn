@@ -45,7 +45,7 @@ user/user.go:12:3: 	returned here
 
 | Method | Command | Needs |
 | --- | --- | --- |
-| **[mise](https://mise.jdx.dev/)** *(recommended)* | `mise use -g "github:mpyw/errlogreturn"` | Nothing. Installs the prebuilt binary |
+| **[mise](https://mise.jdx.dev/)** *(recommended)* | `mise use "github:mpyw/errlogreturn@0.1.0"` | Nothing. Installs the prebuilt binary |
 | `go tool` | `go get -tool github.com/mpyw/errlogreturn/cmd/errlogreturn@latest` | Go 1.27+ |
 | `go install` | `go install github.com/mpyw/errlogreturn/cmd/errlogreturn@latest` | Go 1.27+ |
 
@@ -58,11 +58,11 @@ The analyzed code may target any Go version.
 <details>
 <summary>Pin a version, or run through <code>go vet</code></summary>
 
-Pin it per project in `mise.toml`:
+`mise use` pins the version in the project's `mise.toml`, so every checkout and CI run the same one. Add `-g` to install it for every project on your machine instead.
 
 ```toml
 [tools]
-"github:mpyw/errlogreturn" = "latest"
+"github:mpyw/errlogreturn" = "0.1.0"
 ```
 
 Through `go vet`:
