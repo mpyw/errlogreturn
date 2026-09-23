@@ -11,7 +11,7 @@ A Go linter that reports an error that is both logged and returned.
 
 An error should be handled once. A function that logs an error and then returns it hands the same failure to its caller. The caller logs it again, and so does the next one. One failure turns into one log line per layer.
 
-`errlogreturn` finds the places where one error reaches a logger and a `return` on the same path.
+`errlogreturn` reports a function where one error reaches a logger and a `return` on the same path.
 
 ```go
 package user
@@ -21,164 +21,86 @@ import (
 	"log/slog"
 )
 
-type Store struct{ log *slog.Logger }
-
-func (s *Store) logFailure(err error) {
-	s.log.Error("store failed", "err", err)
-}
-
-func (s *Store) Load(id string) (*User, error) {
-	u, err := s.query(id)
+func Load(id string) (*User, error) {
+	u, err := query(id)
 	if err != nil {
-		s.log.Error("query failed", "id", id, "err", err)
+		slog.Error("query failed", "id", id, "err", err)
 		return nil, fmt.Errorf("load %s: %w", id, err)
 	}
 	return u, nil
 }
 
-func (s *Store) Save(u *User) error {
-	if err := s.insert(u); err != nil {
-		s.logFailure(err)
-		return err
-	}
-	return nil
-}
-
 type User struct{ ID string }
 
-func (s *Store) query(id string) (*User, error) { return &User{ID: id}, nil }
-func (s *Store) insert(u *User) error           { return nil }
+func query(id string) (*User, error) { return &User{ID: id}, nil }
 ```
 
-```text
-user.go:17:3: error is logged here and also returned at line 18; log it or return it, not both
-user.go:18:3: 	returned here
-user.go:25:3: error is logged by (*Store).logFailure and also returned at line 26; log it or return it, not both
-user.go:26:3: 	returned here
+```console
+$ errlogreturn ./...
+user/user.go:11:3: error is logged here and also returned at line 12; log it or return it, not both
+user/user.go:12:3: 	returned here
 ```
 
-## Requirements
+## Install
 
-Go 1.27 or later. The analyzed code may target any Go version.
-
-## Installation & Usage
-
-### <a href="https://mise.jdx.dev/"><img src="https://mise.jdx.dev/logo.svg" height="28" alt=""></a> Using [mise](https://mise.jdx.dev/) (macOS/Linux/Windows)
-
-**Recommended.** mise installs errlogreturn from GitHub Releases through its `github` backend. The binaries are prebuilt, so no Go toolchain is needed.
+| Method | Command | Needs |
+| --- | --- | --- |
+| **[mise](https://mise.jdx.dev/)** *(recommended)* | `mise use -g "github:mpyw/errlogreturn"` | Nothing. Installs the prebuilt binary |
+| `go tool` | `go get -tool github.com/mpyw/errlogreturn/cmd/errlogreturn@latest` | Go 1.27+ |
+| `go install` | `go install github.com/mpyw/errlogreturn/cmd/errlogreturn@latest` | Go 1.27+ |
 
 ```bash
-mise use -g "github:mpyw/errlogreturn"
-errlogreturn ./...
+errlogreturn ./...          # or: go tool errlogreturn ./...
 ```
 
-Or pin it per project in `mise.toml`:
+The analyzed code may target any Go version.
+
+<details>
+<summary>Pin a version, or run through <code>go vet</code></summary>
+
+Pin it per project in `mise.toml`:
 
 ```toml
 [tools]
 "github:mpyw/errlogreturn" = "latest"
 ```
 
-> [!IMPORTANT]
-> The `go`-based methods below build errlogreturn from source. They need **Go 1.27 or later**. `go tool` also needs Go 1.24+ on `PATH`.
-
-### Using [`go tool`](https://pkg.go.dev/cmd/go#hdr-Run_specified_go_tool)
+Through `go vet`:
 
 ```bash
-go get -tool github.com/mpyw/errlogreturn/cmd/errlogreturn@latest
-go tool errlogreturn ./...
-```
-
-### Using [`go install`](https://pkg.go.dev/cmd/go#hdr-Compile_and_install_packages_and_dependencies)
-
-```bash
-go install github.com/mpyw/errlogreturn/cmd/errlogreturn@latest
-errlogreturn ./...
-```
-
-### Using [`go vet`](https://pkg.go.dev/cmd/go#hdr-Report_likely_mistakes_in_packages)
-
-```bash
-go install github.com/mpyw/errlogreturn/cmd/errlogreturn@latest
 go vet -vettool=$(which errlogreturn) ./...
 ```
 
 > [!CAUTION]
 > Pin a version tag instead of `@latest` in CI/CD pipelines, such as `@v0.1.0`. This protects the pipeline from supply chain attacks.
 
-## What is reported
+</details>
 
-A report needs three things on one path through a function.
+## What counts as the same error
 
-| Condition | Meaning |
-| --- | --- |
-| An error is logged | A logger receives the error, its message, or anything built from it |
-| An error is returned | A `return` hands back the same error, or an error built from it |
-| One path connects them | The `return` can run after the log call, without the error being produced again |
-
-### What counts as the same error
-
-"Built from it" covers the usual ways an error is passed on.
+The logged value and the returned value do not have to be the same variable. Anything built from the error counts.
 
 | Form | Example |
 | --- | --- |
 | Wrapping | `fmt.Errorf("load: %w", err)`, `errors.Join(err, other)` |
-| Formatting | `fmt.Errorf("load: %v", err)`, `err.Error()` |
+| Formatting | `fmt.Errorf("load: %v", err)`, `err.Error()`. The error does not unwrap, but the caller still gets its message |
 | A struct that holds it | `&QueryError{Cause: err}` |
 | A helper that returns it | Any function whose result carries its error argument |
 | A logger field | `zap.Error(err)`, `slog.Any("err", err)`, `logger.With("err", err)` |
 
-Here the logger gets only the message, and the caller gets a new struct.
+## Helpers are followed
 
-```go
-package built
+A function that logs its argument counts as a log call. This holds for a function in another package, and for a method on your own logger type. No configuration is needed.
 
-import (
-	"errors"
-	"log/slog"
-)
+| The helper | Example body | A caller that calls it and returns `err` |
+| --- | --- | --- |
+| Logs its argument | `slog.Error("failed", "err", err)` | Reported |
+| Logs it unless it is `nil` | `if err != nil { slog.Error(...) }` | Reported |
+| Logs it only under another condition | `if !errors.Is(err, ErrCanceled) { slog.Error(...) }` | Not reported |
+| Logs it and returns it | `slog.Error(...); return err` | The helper is reported. A caller that returns its result is not |
 
-type QueryError struct {
-	Query string
-	Cause error
-}
-
-func (e *QueryError) Error() string { return e.Query + ": " + e.Cause.Error() }
-
-func Find(q string) error {
-	if err := exec(q); err != nil {
-		slog.Error("query failed", "msg", err.Error())
-		return &QueryError{Query: q, Cause: err}
-	}
-	return nil
-}
-
-func exec(q string) error { return errors.New("syntax error") }
-```
-
-```console
-$ errlogreturn ./...
-built/built.go:17:3: error is logged here and also returned at line 18; log it or return it, not both
-built/built.go:18:3: 	returned here
-```
-
-Both carry the same failure, so it is still reported.
-
-> [!NOTE]
-> `%v` counts as well as `%w`. The error does not have to unwrap. The caller still receives its message and will log it again.
-
-### Helpers are followed
-
-A function that logs its argument is recognized wherever it is called. That includes a function in another package, and a method on your own logger type.
-
-| Case | Treated as |
-| --- | --- |
-| The helper logs its argument on every path | A log call |
-| The helper logs only when the argument is not `nil` | A log call |
-| The helper logs only under another condition | Not a log call |
-| The helper logs and also returns the error | Reported inside the helper. A caller that returns the helper's result is not reported again |
-
-A `logx` package holds three helpers.
+<details>
+<summary>Full example</summary>
 
 ```go
 package logx
@@ -210,8 +132,6 @@ func LogAndReturn(err error) error {
 	return err
 }
 ```
-
-Another package calls each of them.
 
 ```go
 package helpers
@@ -252,16 +172,9 @@ helpers/helpers.go:11:2: error is logged by LogIfErr and also returned at line 1
 helpers/helpers.go:12:2: 	returned here
 ```
 
-| Function | Result |
-| --- | --- |
-| `Sync` | Reported. `LogIfErr` logs every error that is not `nil` |
-| `Poll` | Not reported. `LogUnlessCanceled` logs only some errors |
-| `Fetch` | Not reported. The report is on `LogAndReturn` itself |
+</details>
 
-> [!TIP]
-> No configuration is needed for such helpers. Configure only a logger the analyzer cannot read, as described in [Configuration](#configuration).
-
-### Loggers
+## Loggers
 
 | Logger | Counted | Not counted |
 | --- | --- | --- |
@@ -272,86 +185,36 @@ helpers/helpers.go:12:2: 	returned here
 | `go.uber.org/zap` | `Info`, `Warn`, `Error`, `DPanic`, and the sugared forms | `Debug`, `Fatal`, `Panic` |
 | `github.com/sirupsen/logrus` | `Info`, `Warn`, `Warning`, `Error`, `Print`, and their `f` and `ln` forms | `Debug`, `Trace`, `Fatal`, `Panic` |
 
-- A debug line is a trace of what happened, not the handling of a failure. It is not counted.
-- A fatal or panic call never returns, so no `return` follows it.
-- A level passed as a value counts only when it is a constant in range.
-
-```go
-package levels
-
-import (
-	"context"
-	"errors"
-	"log/slog"
-)
-
-func Retry(ctx context.Context) error {
-	err := dial()
-	slog.Debug("dial failed, retrying", "err", err)
-	return err
-}
-
-func Warn(ctx context.Context) error {
-	err := dial()
-	slog.Log(ctx, slog.LevelWarn, "dial failed", "err", err)
-	return err
-}
-
-func Dynamic(ctx context.Context, lvl slog.Level) error {
-	err := dial()
-	slog.Log(ctx, lvl, "dial failed", "err", err)
-	return err
-}
-
-func dial() error { return errors.New("refused") }
-```
-
-```console
-$ errlogreturn ./...
-levels/levels.go:17:2: error is logged here and also returned at line 18; log it or return it, not both
-levels/levels.go:18:2: 	returned here
-```
-
-Only `Warn` is reported. `Retry` logs at debug level, and the level in `Dynamic` is not known.
+> [!NOTE]
+> A debug line traces what happened. It does not handle the failure. A fatal or panic call never returns, so no `return` follows it.
+>
+> A level passed as a value counts only when it is a constant. `slog.Log(ctx, slog.LevelWarn, ...)` counts, and `slog.Log(ctx, lvl, ...)` does not.
 
 ## What is not reported
 
-| Case | Why | Example below |
-| --- | --- | --- |
-| The log and the `return` are on different branches | No single path runs both | `Branches` |
-| A different error is returned | `log(err); return ErrNotFound` hands over nothing that was logged | `Sentinel` |
-| The error is translated | A helper that returns a sentinel instead of its argument does not carry it | |
-| The error is logged in one loop iteration and returned in the next | The next iteration's error is a new value | `Loop` |
-| Generated files | A report there cannot be acted on. Their helpers are still followed | |
+Every judgement leans toward silence. A missed report costs a duplicated log line, and a false one teaches people to ignore the linter.
+
+| Case | Why |
+| --- | --- |
+| The log and the `return` are on different branches | No single path runs both |
+| A different error is returned | `log(err); return ErrNotFound` hands over nothing that was logged |
+| The error is translated | A helper that returns a sentinel instead of its argument does not carry it |
+| The error is logged in one loop iteration and returned in the next | The next iteration's error is a new value |
+| Generated files | A report there cannot be acted on. Their helpers are still followed |
+| A call through an interface or a function value | The callee is not known. [Declare it](#declaring-your-own-logger) if it logs |
+| An error sent through a channel, or stored in a global and read elsewhere | The path is not followed |
+| A variable that may hold one of several errors when it is logged | It matches only a `return` of that same variable |
+| A helper that calls itself | Its own recursive call is taken to log nothing |
+
+<details>
+<summary>The loop case</summary>
 
 ```go
-package silent
+package retry
 
-import (
-	"errors"
-	"log/slog"
-)
+import "log/slog"
 
-var ErrNotFound = errors.New("not found")
-
-func Branches(id string) error {
-	err := load(id)
-	if errors.Is(err, ErrNotFound) {
-		slog.Warn("missing", "id", id, "err", err)
-		return nil
-	}
-	return err
-}
-
-func Sentinel(id string) error {
-	if err := load(id); err != nil {
-		slog.Error("load failed", "err", err)
-		return ErrNotFound
-	}
-	return nil
-}
-
-func Loop(ids []string) error {
+func Each(ids []string, load func(string) error) error {
 	var last error
 	for _, id := range ids {
 		if last != nil {
@@ -361,62 +224,40 @@ func Loop(ids []string) error {
 	}
 	return last
 }
-
-func load(id string) error { return ErrNotFound }
 ```
 
-`errlogreturn ./...` prints nothing for this package.
+The warning logs the previous attempt's error. The `return` hands back the last attempt's, which was never logged. `errlogreturn ./...` prints nothing here.
 
-## Directives
+</details>
 
-| Directive | Where | Effect |
-| --- | --- | --- |
-| `//errlogreturn:ignore` | On the reported line, or the line above it | Silences that report |
-| `//errlogreturn:sink` | In the doc comment of a function or an interface method | Declares that it logs every argument |
+## Ignoring a report
 
-A report is anchored on the first line of the statement that logs. An ignore directive above a multi-line call therefore covers it.
+Put `//errlogreturn:ignore` on the reported line, or on the line above it. Text after the directive is free, so say why both are needed.
 
-A directive that does nothing is reported. That covers an ignore that silences nothing, a `sink` directive in the wrong place, and any directive the analyzer does not know.
+A report is anchored on the first line of the statement that logs. A directive above a multi-line call therefore covers it.
 
 ```go
-package directives
-
-import (
-	"errors"
-	"log/slog"
-)
-
-func Open() error {
-	err := dial()
-	//errlogreturn:ignore the caller only traces this error
-	slog.Error("open failed",
-		"err", err)
-	return err
-}
-
-func Close() error {
-	//errlogreturn:ignore
-	return dial()
-}
-
-//errlogreturn:typo
-func dial() error { return errors.New("refused") }
+err := dial()
+//errlogreturn:ignore the caller only traces this error
+slog.Error("open failed",
+	"err", err)
+return err
 ```
 
-```console
-$ errlogreturn ./...
-directives/directives.go:21:1: unknown directive errlogreturn:typo
-directives/directives.go:17:2: unused errlogreturn:ignore directive
-```
+> [!NOTE]
+> A directive that does nothing is reported.
+>
+> | Written | Report |
+> | --- | --- |
+> | An ignore that silences nothing | `unused errlogreturn:ignore directive` |
+> | `//errlogreturn:sink` outside a doc comment | `errlogreturn:sink belongs in the doc comment of a function or an interface method` |
+> | An unknown directive, such as `//errlogreturn:typo` | `unknown directive errlogreturn:typo` |
 
-`Open` is silenced. The ignore in `Close` has no report to silence.
+## Declaring your own logger
 
-> [!TIP]
-> Text after `//errlogreturn:ignore` is free. Use it to say why the log and the `return` are both needed.
+A logger the analyzer cannot read has to be declared. That is usually an interface method, or a function whose body only sends the error elsewhere.
 
-## Configuration
-
-Use `//errlogreturn:sink` for a logger you can annotate. It works on an interface method, which the analyzer cannot follow on its own.
+Put `//errlogreturn:sink` in the doc comment of a logger you can edit. It declares that the function logs every argument.
 
 ```go
 package billing
@@ -443,51 +284,17 @@ billing/billing.go:12:2: error is logged here and also returned at line 13; log 
 billing/billing.go:13:2: 	returned here
 ```
 
-Use the `-sinks` flag for a logger you cannot annotate, such as one in a third-party package. Here `telemetry.Send` is declared elsewhere.
+Pass `-sinks` for a logger you cannot edit, such as one in a third-party package. It takes a comma-separated list.
 
-```go
-package worker
-
-import (
-	"errors"
-
-	"example.com/app/telemetry"
-)
-
-func Upload() error {
-	err := send()
-	telemetry.Send("upload", err)
-	return err
-}
-
-func send() error { return errors.New("reset") }
+```bash
+errlogreturn -sinks 'example.com/telemetry.Send,(example.com/telemetry.Client).Capture' ./...
 ```
-
-```console
-$ errlogreturn ./...
-$ errlogreturn -sinks 'example.com/app/telemetry.Send' ./...
-worker/worker.go:11:2: error is logged here and also returned at line 12; log it or return it, not both
-worker/worker.go:12:2: 	returned here
-```
-
-The flag takes a comma-separated list, spelled the way `go/types` names a function.
 
 | Kind | Spelling |
 | --- | --- |
 | A function | `example.com/telemetry.Send` |
 | A method | `(example.com/telemetry.Client).Capture` |
 | A method with a pointer receiver | `(*example.com/telemetry.Client).Capture`. The `*` may be left out |
-
-## Limitations
-
-The analysis prefers silence to a false report. These cases are not reported.
-
-| Case | Reason |
-| --- | --- |
-| A call through an interface or a function value | The callee is not known. Declare it with `//errlogreturn:sink` if it logs |
-| An error passed through a channel, or stored in a global and read elsewhere | The path is not followed |
-| A value that may come from either of two branches | It is compared by identity, not by guessing which branch ran |
-| A recursive helper | Its summary is built before its own recursive call is understood |
 
 ## License
 
