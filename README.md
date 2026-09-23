@@ -5,9 +5,6 @@
 [![Codecov](https://codecov.io/gh/mpyw/errlogreturn/graph/badge.svg)](https://codecov.io/gh/mpyw/errlogreturn)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-> [!NOTE]
-> This project was written by AI (Claude Code).
-
 A Go linter that reports an error that is both logged and returned.
 
 ## Overview
