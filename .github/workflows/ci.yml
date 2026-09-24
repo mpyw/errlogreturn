@@ -32,6 +32,15 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
 
+    # id-token: write is what lets the Codecov upload authenticate as this
+    # workflow run instead of with a stored token. Nothing else in the job
+    # needs it, and the workflow-wide contents: read has to be restated
+    # alongside it, since a job's permissions replace the default rather than
+    # add to it.
+    permissions:
+      contents: read
+      id-token: write
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -57,8 +66,7 @@ jobs:
           files: ./coverage.txt
           flags: unittests
           name: codecov
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+          use_oidc: true
         continue-on-error: true
 
   spec:
