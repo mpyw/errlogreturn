@@ -66,19 +66,13 @@ The analyzed code may target any Go version.
 > ```
 
 <details>
-<summary>Pin a version, or run through <code>go vet</code></summary>
+<summary>Pin a version</summary>
 
 `mise use` pins the version in the project's `mise.toml`, so every checkout and CI run the same one. Add `-g` to install it for every project on your machine instead.
 
 ```toml
 [tools]
 "github:mpyw/errlogreturn" = "0.1.0"
-```
-
-Through `go vet`:
-
-```bash
-go vet -vettool=$(which errlogreturn) ./...
 ```
 
 > [!CAUTION]
@@ -308,6 +302,9 @@ Pass `-sinks` for a logger you cannot edit, such as one in a third-party package
 
 ```bash
 errlogreturn -sinks 'example.com/telemetry.Send,(example.com/telemetry.Client).Capture' ./...
+
+# The same flag works through go vet
+go vet -vettool=$(which errlogreturn) -sinks 'example.com/telemetry.Send' ./...
 ```
 
 | Kind | Spelling |
