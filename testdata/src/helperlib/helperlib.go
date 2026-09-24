@@ -41,3 +41,21 @@ type Reporter interface {
 func Remote(args ...any) { // want Remote:"sink"
 	_ = fmt.Sprint(args...)
 }
+
+var ErrInternal = fmt.Errorf("internal")
+
+// ToPublic hides the cause from the caller. It returns a sentinel, and carries
+// nothing of its argument.
+func ToPublic(err error) error { // want ToPublic:"carries nothing"
+	return ErrInternal
+}
+
+// Clear always drops the error it is handed.
+func Clear(p *error) { *p = nil } // want Clear:`^writes p0$`
+
+// Reset sets what p points to to its zero value.
+func Reset[T any](p *T) { var z T; *p = z } // want Reset:`^writes p0$`
+
+type Box[T any] struct{ v T }
+
+func (b *Box[T]) Set(p *T) { *p = b.v } // want Set:`^writes p1$`

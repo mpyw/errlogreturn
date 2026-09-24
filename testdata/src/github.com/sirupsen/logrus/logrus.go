@@ -30,3 +30,8 @@ func (l *Logger) Warnf(format string, args ...any) {}
 func (e *Entry) Error(args ...any)                 {}
 func (e *Entry) Debug(args ...any)                 {}
 func (e *Entry) Log(level Level, args ...any)      {}
+
+// TextFormatter is not a logger.
+type TextFormatter struct{}
+
+func (f *TextFormatter) Error(args ...any) {}

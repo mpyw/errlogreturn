@@ -89,8 +89,14 @@ func notSent(l *zerolog.Logger) error {
 	return err
 }
 
-func eventFromParam(e *zerolog.Event) error {
+func eventFromParam(e *zerolog.Event) error { // want eventFromParam:`^writes p0\.\[\]$`
 	err := do()
 	e.Err(err).Msg("failed")
+	return err
+}
+
+func discarded(l *zerolog.Logger) error {
+	err := do()
+	l.Error().Err(err).Discard().Msg("failed")
 	return err
 }

@@ -36,6 +36,39 @@ func declaredSink() error {
 
 // ===== SHOULD NOT REPORT =====
 
+// The helper in another package translates the error, and a fact says so.
+func translated() error {
+	err := do()
+	helperlib.LogErr(err)
+	return helperlib.ToPublic(err)
+}
+
+// A deferred call in another package that always writes err replaces what
+// was logged.
+func deferredClearElsewhere() (err error) {
+	defer helperlib.Clear(&err)
+	if err = do(); err != nil {
+		helperlib.LogErr(err)
+		return err
+	}
+	return nil
+}
+
+// A generic writer in another package, and a method of a generic type.
+func genericReset() error {
+	err := do()
+	helperlib.LogErr(err)
+	helperlib.Reset(&err)
+	return err
+}
+
+func genericMethod(b *helperlib.Box[error]) error {
+	err := do()
+	helperlib.LogErr(err)
+	b.Set(&err)
+	return err
+}
+
 func wrapOnly() error {
 	return helperlib.Wrap(do(), "do")
 }

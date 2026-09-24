@@ -57,7 +57,7 @@ func logThenReturnLater() error {
 
 type queryError struct{ cause error }
 
-func (e *queryError) Error() string { return e.cause.Error() } // want Error:"carries p0→r0"
+func (e *queryError) Error() string { return e.cause.Error() } // want Error:"carries p0.0→r0"
 
 func logAndStructWrap() error {
 	if err := do(); err != nil {
@@ -130,7 +130,7 @@ func fatal() error {
 	return nil
 }
 
-func toPublic(err error) error {
+func toPublic(err error) error { // want toPublic:"carries nothing"
 	if errors.Is(err, errSentinel) {
 		return errSentinel
 	}
@@ -145,7 +145,7 @@ func logAndTranslate() error {
 	return nil
 }
 
-func logValueNotError(n int) error { // want logValueNotError:"carries p0→r0"
+func logValueNotError(n int) error {
 	log.Println(n)
 	return fmt.Errorf("bad %d", n)
 }

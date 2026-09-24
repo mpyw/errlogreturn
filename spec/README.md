@@ -11,10 +11,11 @@ They check the **design**, not the implementation. Each one models a rule agains
 | `fresh_value.fsl` | A value defined again after the log is a new value. A loop never matches one iteration's logged error with the next one's returned error. Every error logged and returned in one iteration is still reported |
 | `phi_identity.fsl` | A φ-node the path has not resolved is compared by identity. The rule never reports an error that was not logged. A merge the walk enters after the log is still resolved and reported |
 | `must_log.fsl` | A helper counts as logging only when every returning path logs its argument, or knows it is nil. Whenever that summary says "logs" and the error is not nil, the helper logged it |
+| `loop_exit.fsl` | What the loop rule relies on. The rule does not take the loop's exit when the guard that leads to the log fails on the counter's last value. Then the loop never exits right after a log, so the walk's exit is one the program cannot take. When the guard lets the last attempt log, the exit is real and the report is genuine |
 
-Each of the three also witnesses what it gives up. `phi_identity.fsl` misses a report when the φ-node took the shared edge. `must_log.fsl` misses a recursive helper, whose recursive call reads an empty summary.
+Each of them also witnesses what it gives up. `phi_identity.fsl` misses a report when the φ-node took the shared edge. `must_log.fsl` misses a recursive helper, whose recursive call reads an empty summary.
 
-## The three that fail
+## The four that fail
 
 These are not regressions. Each models the rule that the matching proved spec replaced, and its counterexample is the reason for the change.
 
@@ -23,6 +24,7 @@ These are not regressions. Each models the rule that the matching proved spec re
 | `fresh_value_naive.fsl` | SSA values are compared, and nothing else | An error logged in one iteration matches the new error returned in the next. woodpecker's `cli/pipeline/purge.go` was reported for this |
 | `phi_expand.fsl` | An unresolved φ-node stands for all of its edges | The new error is logged through the φ-node, and returning the shared error is reported. usememos/memos `store/attachment.go` was reported for this shape |
 | `must_log_may.fsl` | A helper logs its argument when some path does | A helper that logs only under another condition logs nothing, and the caller is still reported |
+| `loop_exit_naive.fsl` | The walk follows every edge after the log | A retry loop logs each failed attempt and breaks on the last. The walk leaves through the loop condition, and the final return of the unlogged last error is reported |
 
 ## Running them
 
@@ -30,4 +32,4 @@ These are not regressions. Each models the rule that the matching proved spec re
 ./verify.sh
 ```
 
-The script reads each verdict from `fslc`'s JSON, never from its exit code. The three proved specs must be `proved` under induction. The three failing ones must be `violated` on the named invariant. A spec in the directory that is named in neither list fails the run.
+The script reads each verdict from `fslc`'s JSON, never from its exit code. The proved specs must be `proved` under induction. The failing ones must be `violated` on the named invariant. A spec in the directory that is named in neither list fails the run.

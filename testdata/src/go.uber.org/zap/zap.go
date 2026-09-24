@@ -33,3 +33,4 @@ func (l *Logger) Sugar() *SugaredLogger                      { return &SugaredLo
 func (s *SugaredLogger) Debugw(msg string, kv ...any)        {}
 func (s *SugaredLogger) Errorw(msg string, kv ...any)        {}
 func (s *SugaredLogger) Errorf(format string, a ...any)      {}
+func (s *SugaredLogger) Log(lvl Level, args ...any)          {}

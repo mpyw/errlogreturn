@@ -80,8 +80,8 @@ func (c *checker) directSink(cl callee) ([]ssa.Value, bool) {
 // userSink reports whether obj is named by -sinks or declared with
 // //errlogreturn:sink, here or in the package that declares it.
 func (c *checker) userSink(obj *types.Func) bool {
-	name := obj.FullName()
-	if c.cfg.Sinks[name] || c.cfg.Sinks[strings.Replace(name, "(*", "(", 1)] {
+	// The flag's names have the * of a pointer receiver dropped.
+	if c.cfg.Sinks[strings.Replace(obj.FullName(), "(*", "(", 1)] {
 		return true
 	}
 	if c.directives.Sink(obj) {
@@ -93,12 +93,13 @@ func (c *checker) userSink(obj *types.Func) bool {
 
 // sinkName names the callee that logs, the way a reader would spell it.
 func sinkName(cl callee) string {
-	if cl.obj == nil {
+	obj := cl.calleeDeclared()
+	if obj == nil {
 		return "a function literal"
 	}
-	sig, _ := cl.obj.Type().(*types.Signature)
+	sig, _ := obj.Type().(*types.Signature)
 	if sig == nil || sig.Recv() == nil {
-		return cl.obj.Name()
+		return obj.Name()
 	}
 	t := sig.Recv().Type()
 	star := ""
@@ -106,7 +107,7 @@ func sinkName(cl callee) string {
 		t, star = p.Elem(), "*"
 	}
 	if n, ok := t.(*types.Named); ok {
-		return "(" + star + n.Obj().Name() + ")." + cl.obj.Name()
+		return "(" + star + n.Obj().Name() + ")." + obj.Name()
 	}
-	return cl.obj.Name()
+	return obj.Name()
 }

@@ -15,8 +15,17 @@ func sameLine() error {
 
 func lineAbove() error {
 	err := do()
-	// errlogreturn:ignore
+	//errlogreturn:ignore
 	log.Println(err)
+	return err
+}
+
+// A space after the slashes makes a comment prose, as it does for //go:
+// directives, so it silences nothing.
+func spaced() error {
+	err := do()
+	// errlogreturn:ignore
+	log.Println(err) // want `error is logged here`
 	return err
 }
 
@@ -32,3 +41,6 @@ func misplaced() {
 
 //errlogreturn:typo // want `unknown directive errlogreturn:typo`
 func unknown() {}
+
+// errlogreturn: this comment is prose, not a directive.
+func prose() {}

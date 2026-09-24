@@ -41,6 +41,9 @@ user/user.go:11:3: error is logged here and also returned at line 12; log it or 
 user/user.go:12:3: 	returned here
 ```
 
+> [!NOTE]
+> The paths in these examples are shortened. The tool prints absolute paths.
+
 ## Install
 
 | Method | Command | Needs |
@@ -54,6 +57,13 @@ errlogreturn ./...          # or: go tool errlogreturn ./...
 ```
 
 The analyzed code may target any Go version.
+
+> [!TIP]
+> On a large module, run it through `go vet`. Helpers are recognized across packages, so every dependency is analyzed too. Run on its own, the tool holds all of that in one process, which peaked at 19GB on traefik. Through `go vet` each package is its own process and is cached: the same run peaked at 2.7GB, and at 0.2GB on the next run.
+>
+> ```bash
+> go vet -vettool=$(which errlogreturn) ./...
+> ```
 
 <details>
 <summary>Pin a version, or run through <code>go vet</code></summary>
@@ -189,6 +199,8 @@ helpers/helpers.go:12:2: 	returned here
 > A debug line traces what happened. It does not handle the failure. A fatal or panic call never returns, so no `return` follows it.
 >
 > A level passed as a value counts only when it is a constant. `slog.Log(ctx, slog.LevelWarn, ...)` counts, and `slog.Log(ctx, lvl, ...)` does not.
+>
+> A log call in a `defer` or a `go` statement counts too.
 
 ## What is not reported
 
@@ -197,12 +209,18 @@ Every judgement leans toward silence. A missed report costs a duplicated log lin
 | Case | Why |
 | --- | --- |
 | The log and the `return` are on different branches | No single path runs both |
+| A branch the path already decided, such as `if verbose { log(err) }` then `if !verbose { return err }` | The path that logs never reaches that `return`. The same holds for a value compared with constants, as two `switch mode` statements do. Code under a false constant, such as `if debug`, never runs at all |
 | A different error is returned | `log(err); return ErrNotFound` hands over nothing that was logged |
-| The error is translated | A helper that returns a sentinel instead of its argument does not carry it |
+| The error is translated | A helper that returns a sentinel instead of its argument does not carry it, in any package |
+| Only a check on the error is logged, such as `err != nil` or `errors.Is(err, target)` | A boolean or a number says whether the call failed, not what the error was. An error type that is a number, such as `syscall.Errno`, still counts |
+| Another field is logged, such as `j.ID` while the error goes to `j.Err` | Each field is read on its own, through calls and getters too |
+| The error is replaced after the log | A later assignment, a closure that assigns it, or a call that writes it, such as `fill(&err)`, leaves a new error. So does a deferred closure that always sets `err`, or sets `err = nil` right after logging it. A call that writes another field does not count, and neither does a deferred `Close` that sets `err` only when it is `nil` |
 | The error is logged in one loop iteration and returned in the next | The next iteration's error is a new value |
+| The log cannot run on the loop's last iteration, as in a retry loop that breaks before logging its last attempt | Then the loop cannot end right after the log, so its exit is not followed. A test of the loop counter that the analyzer cannot evaluate, such as `i%2 == 0`, counts as one |
+| The logged error is known to be `nil` there | A `nil` error is not a failure |
 | Generated files | A report there cannot be acted on. Their helpers are still followed |
-| A call through an interface or a function value | The callee is not known. [Declare it](#declaring-your-own-logger) if it logs |
-| An error sent through a channel, or stored in a global and read elsewhere | The path is not followed |
+| A call through an interface or a function value | The callee is not known. It is taken to log nothing, and to pass its error arguments on to its error result. [Declare it](#declaring-your-own-logger) if it logs |
+| An error sent through a channel, or stored in a global and read in another function | The path is not followed |
 | A variable that may hold one of several errors when it is logged | It matches only a `return` of that same variable |
 | A helper that calls itself | Its own recursive call is taken to log nothing |
 
@@ -233,6 +251,8 @@ The warning logs the previous attempt's error. The `return` hands back the last 
 ## Ignoring a report
 
 Put `//errlogreturn:ignore` on the reported line, or on the line above it. Text after the directive is free, so say why both are needed.
+
+Write it with no space after the slashes, as with `//go:` directives. `// errlogreturn:ignore` is a plain comment.
 
 A report is anchored on the first line of the statement that logs. A directive above a multi-line call therefore covers it.
 
@@ -294,7 +314,10 @@ errlogreturn -sinks 'example.com/telemetry.Send,(example.com/telemetry.Client).C
 | --- | --- |
 | A function | `example.com/telemetry.Send` |
 | A method | `(example.com/telemetry.Client).Capture` |
-| A method with a pointer receiver | `(*example.com/telemetry.Client).Capture`. The `*` may be left out |
+| A method with a pointer receiver | `(*example.com/telemetry.Client).Capture` |
+| A method of a generic type | `(example.com/telemetry.Queue[T]).Push` |
+
+The `*` may be written or left out, whatever the receiver is. A name that is not spelled this way stops the run with an error. A name that is spelled correctly but names nothing is not reported, so check the package path.
 
 ## License
 

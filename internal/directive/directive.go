@@ -11,12 +11,12 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
-	"strings"
 )
 
-// prefix opens every directive. A space after the slashes is accepted, as
-// people write one by hand.
-const prefix = "errlogreturn:"
+// tool is the tool name of every directive, as in //errlogreturn:ignore.
+// Directives follow the syntax of https://go.dev/doc/comment#directives, and
+// go/ast parses them. A comment with a space after the slashes is prose.
+const tool = "errlogreturn"
 
 // Set is what the directives in a package say.
 type Set struct {
@@ -61,7 +61,7 @@ func (s *Set) scanFile(f *ast.File, info *types.Info) {
 			return
 		}
 		for _, cm := range doc.List {
-			if v, ok := verb(cm.Text); ok && v == "sink" {
+			if v, ok := verb(cm); ok && v == "sink" {
 				placed[cm] = true
 				if obj, ok := info.Defs[id].(*types.Func); ok {
 					s.sinks[obj] = true
@@ -91,7 +91,7 @@ func (s *Set) scanFile(f *ast.File, info *types.Info) {
 	s.ignores[s.fset.Position(f.Pos()).Filename] = lines
 	for _, cg := range f.Comments {
 		for _, cm := range cg.List {
-			v, ok := verb(cm.Text)
+			v, ok := verb(cm)
 			if !ok {
 				continue
 			}
@@ -111,16 +111,13 @@ func (s *Set) scanFile(f *ast.File, info *types.Info) {
 	}
 }
 
-// verb returns the word after the prefix, when text is a directive.
-func verb(text string) (string, bool) {
-	text = strings.TrimPrefix(text, "//")
-	text = strings.TrimPrefix(text, " ")
-	rest, ok := strings.CutPrefix(text, prefix)
-	if !ok {
+// verb returns the directive's name, when cm is one of this tool's.
+func verb(cm *ast.Comment) (string, bool) {
+	d, ok := ast.ParseDirective(cm.Slash, cm.Text)
+	if !ok || d.Tool != tool {
 		return "", false
 	}
-	v, _, _ := strings.Cut(rest, " ")
-	return v, true
+	return d.Name, true
 }
 
 // Sink reports whether obj is declared with //errlogreturn:sink.
