@@ -14,6 +14,8 @@ type Gen[T any] struct{}
 
 func (Gen[T]) Emit(v any) {}
 
+func (Gen[T]) Put[U any](v U) {}
+
 type Value struct{}
 
 func (Value) Push(v any) {}
@@ -43,5 +45,12 @@ func valueReceiver(v Value) error {
 func genericReceiver(g Gen[int]) error {
 	err := do()
 	g.Emit(err) // want `error is logged here`
+	return err
+}
+
+// A generic method is named without its own type parameters.
+func genericMethod(g Gen[int]) error {
+	err := do()
+	g.Put(err) // want `error is logged here`
 	return err
 }

@@ -14,7 +14,7 @@ func TestAnalyzer(t *testing.T) {
 }
 
 func TestSinksFlag(t *testing.T) {
-	if err := errlogreturn.Analyzer.Flags.Set("sinks", "sinkflag.Report, (sinkflag.Client).Send, (*sinkflag.Value).Push, (sinkflag.Gen[T]).Emit"); err != nil {
+	if err := errlogreturn.Analyzer.Flags.Set("sinks", "sinkflag.Report, (sinkflag.Client).Send, (*sinkflag.Value).Push, (sinkflag.Gen[T]).Emit, (sinkflag.Gen[T]).Put"); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = errlogreturn.Analyzer.Flags.Set("sinks", "") })
