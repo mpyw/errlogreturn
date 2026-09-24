@@ -1,0 +1,67 @@
+// FAILS ON PURPOSE. This is the rule loop_exit.fsl replaced, and the
+// counterexample is the reason it was replaced.
+//
+// The walk follows every edge after the log, including the loop condition's
+// exit, whether the condition is tested at the head or at the bottom of the
+// body. In the retry loop of loop_exit.fsl, that exit cannot run after the log,
+// but the walk reaches return err through it without redefining err. So a log
+// on any retry is reported against the final return, which hands back the
+// last attempt's error: one that was never logged.
+//
+//   for attempt := 1; attempt <= MAX; attempt++ {
+//     err = do()
+//     if err == nil { return nil }
+//     if attempt == MAX { break }
+//     log(err)
+//   }
+//   return err
+//
+// ASSUME-1: MAX bounds the number of attempts. It is a modeling bound, not a
+// claim about loops.
+spec LoopExitNaive {
+  const MAX = 3
+  type Attempt = 1..4
+  type Gen = 0..3
+  enum Pc { Head, Body, Returned }
+
+  state {
+    pc: Pc, attempt: Attempt, gen: Gen,
+    loggedGens: Set<Gen>,
+    reported: Bool, doubled: Bool
+  }
+
+  init {
+    pc = Head  attempt = 1  gen = 0
+    loggedGens = Set {}
+    reported = false  doubled = false
+  }
+
+  action enter() {
+    requires pc == Head  requires attempt <= MAX  requires gen < 3
+    pc = Body  gen = gen + 1
+  }
+
+  action succeed() {
+    requires pc == Body
+    pc = Returned
+  }
+
+  // Any earlier log reaches this return through head's exit edge.
+  action giveUp() {
+    requires pc == Body  requires attempt == MAX
+    pc = Returned
+    reported = loggedGens.size() > 0
+    doubled = loggedGens.contains(gen)
+  }
+
+  action retry() {
+    requires pc == Body  requires attempt < MAX
+    loggedGens = loggedGens.add(gen)
+    attempt = attempt + 1
+    pc = Head
+  }
+
+  terminal { pc == Returned }
+
+  invariant NeverReportsAnUnloggedError { reported => doubled }
+}

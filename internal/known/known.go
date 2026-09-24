@@ -45,10 +45,23 @@ func Package(obj *types.Func) bool {
 	return pkg == "log" || carriers[pkg]
 }
 
-// Carries reports whether obj carries each input into each result.
-func Carries(obj *types.Func) bool {
-	pkg, _, _ := parts(obj)
-	return carriers[pkg]
+// Carries reports whether result idx of obj carries each input.
+//
+// fmt is the exception. Only Errorf builds its error from the arguments. The
+// error from Fprintf or Sscan is the writer's or the reader's, and returning
+// it hands over nothing that was formatted.
+func Carries(obj *types.Func, idx int) bool {
+	pkg, _, name := parts(obj)
+	if !carriers[pkg] {
+		return false
+	}
+	if pkg == "fmt" && name != "Errorf" {
+		sig, ok := obj.Type().(*types.Signature)
+		if ok && idx < sig.Results().Len() && typeutil.IsError(sig.Results().At(idx).Type()) {
+			return false
+		}
+	}
+	return true
 }
 
 // Accessor reports whether obj is a method that renders or unwraps its
@@ -84,14 +97,16 @@ func Mutates(obj *types.Func) bool {
 func Logs(obj *types.Func, in []ssa.Value) ([]ssa.Value, bool) {
 	pkg, recv, name := parts(obj)
 	method := recv != ""
+	// A level is read from the call's arguments. A module that replaces a
+	// logger with a fork may pass fewer, and then nothing is read.
 	arg := func(i int) ssa.Value {
 		if method {
 			i++
 		}
-		if i < len(in) {
-			return in[i]
+		if i >= len(in) {
+			return nil
 		}
-		return nil
+		return in[i]
 	}
 
 	switch pkg {
@@ -189,6 +204,10 @@ func eventLogs(v ssa.Value, seen map[ssa.Value]bool) bool {
 		}
 		pkg, recv, name := parts(obj)
 		if pkg == pkgZerolog && recv == "Event" {
+			// A discarded event is disabled, and sends nothing.
+			if name == "Discard" {
+				return false
+			}
 			return len(cc.Args) > 0 && eventLogs(cc.Args[0], seen)
 		}
 		if (pkg == pkgZerolog && recv == "Logger") || (pkg == pkgZerologLog && recv == "") {
@@ -196,9 +215,9 @@ func eventLogs(v ssa.Value, seen map[ssa.Value]bool) bool {
 			case "Info", "Warn", "Error", "Err", "Log":
 				return true
 			case "WithLevel":
-				// zerolog levels: Info 1, Warn 2, Error 3.
-				lvl := cc.Args[len(cc.Args)-1]
-				return levelIn(lvl, 1, 3)
+				// zerolog levels: Info 1, Warn 2, Error 3. A fork may
+				// pass no level at all.
+				return len(cc.Args) > 0 && levelIn(cc.Args[len(cc.Args)-1], 1, 3)
 			}
 		}
 	}
@@ -207,6 +226,9 @@ func eventLogs(v ssa.Value, seen map[ssa.Value]bool) bool {
 
 // levelIn reports whether v is a constant level in [lo, hi].
 func levelIn(v ssa.Value, lo, hi int64) bool {
+	if v == nil {
+		return false
+	}
 	k, ok := typeutil.Unbox(v).(*ssa.Const)
 	if !ok || k.Value == nil || k.Value.Kind() != constant.Int {
 		return false
@@ -241,9 +263,6 @@ func stdStream(v ssa.Value) bool {
 
 // parts splits obj into its package path, receiver type name and name.
 func parts(obj *types.Func) (pkg, recv, name string) {
-	if obj == nil {
-		return "", "", ""
-	}
 	if obj.Pkg() != nil {
 		pkg = obj.Pkg().Path()
 	}

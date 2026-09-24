@@ -19,10 +19,13 @@ package internal
 import (
 	"errors"
 	"go/types"
+	"slices"
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/buildssa"
 	"golang.org/x/tools/go/ssa"
+
+	"github.com/mpyw/errlogreturn/internal/typeutil"
 )
 
 // ErrRunWithoutSSA is returned by Run when the pass carries no buildssa
@@ -81,6 +84,11 @@ func runFuncs(info *buildssa.SSA) []*ssa.Function {
 
 // runExport publishes the summary of every named function, and the sink
 // declarations that have no body to summarize.
+//
+// A summary that says nothing is still published when a caller would guess
+// otherwise. With no fact, a caller in another package takes an error result
+// to carry the error arguments, which is wrong for a helper that translates
+// an error into a sentinel.
 func runExport(c *checker, info *buildssa.SSA) {
 	for _, fn := range info.SrcFuncs {
 		obj, ok := fn.Object().(*types.Func)
@@ -89,8 +97,19 @@ func runExport(c *checker, info *buildssa.SSA) {
 		}
 		s := c.summary(fn)
 		n := len(fn.Params)
-		f := &Fact{FlowsTo: s.flows[:n], Logs: s.logs[:n], Sink: c.directives.Sink(obj)}
-		if f.Sink || f.meaningful() {
+		var fields []FactFieldFlow
+		for _, ff := range s.fields {
+			if ff.In < n {
+				fields = append(fields, ff)
+			}
+		}
+		f := &Fact{FlowsTo: s.flows[:n], Logs: s.logs[:n], Writes: s.writes[:n], FieldFlows: fields, Sink: c.directives.Sink(obj)}
+		// Must says something only beside a write, which it qualifies, so
+		// it is exported with the writes and renders nothing of its own.
+		if slices.Contains(s.must[:n], true) {
+			f.Must = s.must[:n]
+		}
+		if f.Sink || f.meaningful() || runGuessWrong(fn, f) {
 			c.pass.ExportObjectFact(obj, f)
 		}
 	}
@@ -100,4 +119,22 @@ func runExport(c *checker, info *buildssa.SSA) {
 			c.pass.ExportObjectFact(obj, &Fact{Sink: true})
 		}
 	}
+}
+
+// runGuessWrong reports whether a caller with no fact about fn would say that
+// an error result carries a parameter that f says it does not. The guess
+// covers every parameter an error can be passed to.
+func runGuessWrong(fn *ssa.Function, f *Fact) bool {
+	res := fn.Signature.Results()
+	for j := range min(res.Len(), 64) {
+		if !typeutil.IsError(res.At(j).Type()) {
+			continue
+		}
+		for i, p := range fn.Params {
+			if typeutil.TakesError(p.Type()) && f.FlowsTo[i]&(1<<j) == 0 {
+				return true
+			}
+		}
+	}
+	return false
 }

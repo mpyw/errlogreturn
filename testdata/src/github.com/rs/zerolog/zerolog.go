@@ -43,3 +43,4 @@ func (e *Event) Ctx(ctx context.Context) *Event { return e }
 func (e *Event) Msg(msg string)                 {}
 func (e *Event) Msgf(format string, v ...any)   {}
 func (e *Event) Send()                          {}
+func (e *Event) Discard() *Event                { return e }

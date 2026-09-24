@@ -21,6 +21,7 @@ func phiMerge(flag bool) error {
 	return err
 }
 
+// The last attempt is logged, and the loop ends after it.
 func loopRetry() error {
 	var err error
 	for range 3 {
@@ -34,7 +35,7 @@ func loopRetry() error {
 
 // The closure logs the named result, which holds what the function returns.
 func deferClosureNamedResult() (err error) {
-	defer func() { // want `error is logged by a function literal and also returned at line 42`
+	defer func() { // want `error is logged by a function literal and also returned at line 43`
 		if err != nil {
 			slog.Error("failed", "err", err)
 		}
@@ -70,7 +71,7 @@ func typeAssert() error {
 
 type pathError struct{ path string }
 
-func (e *pathError) Error() string { return e.path } // want Error:"carries p0→r0"
+func (e *pathError) Error() string { return e.path } // want Error:"carries p0.0→r0"
 
 func joined() error {
 	err := do()
@@ -129,7 +130,7 @@ func closureDoesNotReturn() {
 }
 
 // The error logged in one iteration is not the one returned in the next.
-func nextIteration(items []int) error { // want nextIteration:"carries p0→r0"
+func nextIteration(items []int) error {
 	for _, it := range items {
 		err := do()
 		if err != nil {
@@ -159,7 +160,7 @@ func nextIterationContinue(items []int) error {
 
 // Either edge may reach the log, and the return takes one of them; which one
 // the log saw is not known, so nothing is claimed.
-func nextIterationEitherEdge(items []int, shared error) error { // want nextIterationEitherEdge:"carries p0→r0, carries p1→r0"
+func nextIterationEitherEdge(items []int, shared error) error { // want nextIterationEitherEdge:"carries p1→r0"
 	for _, it := range items {
 		var err error
 		if shared != nil && it > 1 {

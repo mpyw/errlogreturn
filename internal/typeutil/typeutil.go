@@ -61,22 +61,59 @@ func Unbox(v ssa.Value) ssa.Value {
 	}
 }
 
-// MayCarry reports whether a value of type t can carry an error's content: an
-// error, an interface that error satisfies, a string that may hold its message,
-// or a slice or array of any of these, as a variadic ...any parameter is.
-func MayCarry(t types.Type) bool {
+// TakesError reports whether an error can be passed as a value of type t: t
+// is an error, or an interface that error satisfies.
+func TakesError(t types.Type) bool {
 	if IsError(t) {
 		return true
 	}
-	switch u := t.Underlying().(type) {
-	case *types.Interface:
-		return types.Implements(errorType, u)
-	case *types.Basic:
-		return u.Info()&types.IsString != 0
-	case *types.Slice:
-		return MayCarry(u.Elem())
-	case *types.Array:
-		return MayCarry(u.Elem())
+	iface, ok := t.Underlying().(*types.Interface)
+	return ok && types.Implements(errorType, iface)
+}
+
+// MayCarry reports whether a value of type t can carry an error's content: an
+// error, an interface that error satisfies, a string that may hold its message,
+// or a slice or array of any of these, as a variadic ...any parameter is.
+//
+// The element chain is followed in a loop, and a type seen before ends it. A
+// type can refer to itself only through a named type, as in type T []T, so
+// that is where every cycle closes. An instance of a generic type may be a new
+// value each time it is expanded, so the chain is also cut at a depth that no
+// written type reaches.
+func MayCarry(t types.Type) bool {
+	seen := make(map[types.Type]bool)
+	for !seen[t] && len(seen) < maxDepth {
+		seen[t] = true
+		if IsError(t) {
+			return true
+		}
+		switch u := t.Underlying().(type) {
+		case *types.Interface:
+			return types.Implements(errorType, u)
+		case *types.Basic:
+			return u.Info()&types.IsString != 0
+		case *types.Slice:
+			t = u.Elem()
+		case *types.Array:
+			t = u.Elem()
+		default:
+			return false
+		}
 	}
 	return false
+}
+
+// maxDepth bounds the element chain MayCarry follows.
+const maxDepth = 64
+
+// Inert reports whether a value of type t cannot carry an error's content: a
+// boolean or a number that is not itself an error, as syscall.Errno is. A
+// comparison with an error, or a count of its bytes, says nothing that a
+// caller would log again.
+func Inert(t types.Type) bool {
+	if IsError(t) {
+		return false
+	}
+	b, ok := t.Underlying().(*types.Basic)
+	return ok && b.Info()&(types.IsBoolean|types.IsNumeric) != 0
 }

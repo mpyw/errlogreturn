@@ -28,6 +28,9 @@ run_test "declscope" declscope ./...
 # errlogreturn is held to its own rule.
 run_test "dogfood" go run ./cmd/errlogreturn ./...
 run_test "spec" ./spec/verify.sh
+# The engine is held near full coverage. What is left are guards that no
+# input reaches, listed in CLAUDE.md.
+run_test "coverage" ./coverage.sh
 
 echo ""
 echo "===== Summary ====="

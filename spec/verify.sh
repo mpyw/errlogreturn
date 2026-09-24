@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Verify every FSL spec. Three of them are expected to fail: they model the
+# Verify every FSL spec. Four of them are expected to fail: they model the
 # designs the analysis replaced and exist to hold the counterexample. See
 # spec/README.md.
 #
@@ -27,10 +27,10 @@ field() {
 }
 
 ## These must verify, and must be inductive rather than true only to a depth.
-proving=(fresh_value phi_identity must_log)
+proving=(fresh_value phi_identity must_log loop_exit)
 ## These must NOT verify, and must break on the named invariant.
-failing_specs=(fresh_value_naive phi_expand must_log_may)
-failing_invariants=(NeverReportsAFreshValue NeverReportsAnUnloggedError ReportMeansLogged)
+failing_specs=(fresh_value_naive phi_expand must_log_may loop_exit_naive)
+failing_invariants=(NeverReportsAFreshValue NeverReportsAnUnloggedError ReportMeansLogged NeverReportsAnUnloggedError)
 
 status=0
 
@@ -44,7 +44,9 @@ for f in *.fsl; do
 done
 
 for f in "${proving[@]}"; do
-  out=$(fslc verify "$f.fsl" --engine induction 2>&1)
+  # The depth bounds the search for each reachable's witness. loop_exit's
+  # genuine report takes nine steps.
+  out=$(fslc verify "$f.fsl" --engine induction --depth 16 2>&1)
   if [[ "$(field "$out" result)" == "proved" ]]; then
     echo "  ok       $f.fsl (proved)"
   else

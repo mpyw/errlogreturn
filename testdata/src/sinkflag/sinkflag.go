@@ -10,6 +10,16 @@ func (c *Client) Send(v any) {}
 
 func Report(v any) {}
 
+type Gen[T any] struct{}
+
+func (Gen[T]) Emit(v any) {}
+
+func (Gen[T]) Put[U any](v U) {}
+
+type Value struct{}
+
+func (Value) Push(v any) {}
+
 // ===== SHOULD REPORT =====
 
 func function() error {
@@ -21,5 +31,26 @@ func function() error {
 func method(c *Client) error {
 	err := do()
 	c.Send(err) // want `error is logged here`
+	return err
+}
+
+// The flag spells this method with a *, which a value receiver does not have.
+func valueReceiver(v Value) error {
+	err := do()
+	v.Push(err) // want `error is logged here`
+	return err
+}
+
+// A method of a generic type is named with its type parameters.
+func genericReceiver(g Gen[int]) error {
+	err := do()
+	g.Emit(err) // want `error is logged here`
+	return err
+}
+
+// A generic method is named without its own type parameters.
+func genericMethod(g Gen[int]) error {
+	err := do()
+	g.Put(err) // want `error is logged here`
 	return err
 }
