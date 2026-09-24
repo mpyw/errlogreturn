@@ -302,10 +302,14 @@ Pass `-sinks` for a logger you cannot edit, such as one in a third-party package
 
 ```bash
 errlogreturn -sinks 'example.com/telemetry.Send,(example.com/telemetry.Client).Capture' ./...
-
-# The same flag works through go vet
-go vet -vettool=$(which errlogreturn) -sinks 'example.com/telemetry.Send' ./...
 ```
+
+> [!TIP]
+> The flag works the same through `go vet`.
+>
+> ```bash
+> go vet -vettool=$(which errlogreturn) -sinks 'example.com/telemetry.Send' ./...
+> ```
 
 | Kind | Spelling |
 | --- | --- |
