@@ -142,7 +142,7 @@ A call is judged by its arguments at the call site, before their conversion to `
 
 ```bash
 go test ./...    # analysistest over testdata/src
-./test_all.sh    # tests, golangci-lint, declscope, and errlogreturn on itself
+./test_all.sh    # tests, golangci-lint, declscope shrink, declscope, and errlogreturn on itself
 ```
 
 - `testdata/src/*` are analysistest packages. Stubs for zerolog, zap and logrus live under their import paths there. They are **not** read by the analysis, which describes those packages in `internal/known`, so their bodies can be empty.
