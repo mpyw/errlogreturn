@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/token"
 	"go/types"
+	"slices"
 
 	"golang.org/x/tools/go/ssa"
 
@@ -244,10 +245,8 @@ func (w *walker) visit(v ssa.Value, at ssa.Instruction, whole bool) {
 // through an element whose index is not a constant is not recorded: two
 // reads of it may read two elements, errs[i] and errs[j].
 func (w *walker) origin(v ssa.Value, path []int, clob ssa.Instruction) {
-	for _, s := range path {
-		if s == store.Elem {
-			return
-		}
+	if slices.Contains(path, store.Elem) {
+		return
 	}
 	w.errs[walkerOrigin{v: v, path: fmt.Sprint(path), clob: clob}] = true
 }
@@ -314,8 +313,8 @@ func walkerLoaded(v ssa.Value) (at ssa.Instruction, root ssa.Value, path []int, 
 				return nil, nil, nil, false
 			}
 			root, base := store.Locate(x.X)
-			for i := len(rev) - 1; i >= 0; i-- {
-				base = append(base, rev[i])
+			for _, r := range slices.Backward(rev) {
+				base = append(base, r)
 			}
 			return x, root, base, true
 		case *ssa.Lookup:
@@ -344,8 +343,8 @@ func walkerLoaded(v ssa.Value) (at ssa.Instruction, root ssa.Value, path []int, 
 // up, read by instruction at.
 func walkerAt(at ssa.Instruction, m ssa.Value, rev []int) (ssa.Instruction, ssa.Value, []int, bool) {
 	path := []int{store.Elem}
-	for i := len(rev) - 1; i >= 0; i-- {
-		path = append(path, rev[i])
+	for _, r := range slices.Backward(rev) {
+		path = append(path, r)
 	}
 	return at, m, path, true
 }

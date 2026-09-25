@@ -11,6 +11,7 @@ import (
 	"go/constant"
 	"go/token"
 	"go/types"
+	"slices"
 
 	"golang.org/x/tools/go/ssa"
 
@@ -419,12 +420,7 @@ func (x *Index) clobbers(in ssa.Instruction, root ssa.Value, path []int) bool {
 
 // storeHasDeref reports whether a path goes through a loaded pointer.
 func storeHasDeref(p []int) bool {
-	for _, s := range p {
-		if s == Deref {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(p, Deref)
 }
 
 // callClobbers reports whether the call may write the memory at root and

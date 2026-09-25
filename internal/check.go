@@ -350,15 +350,15 @@ func (w *checkWalk) enterFrozen(b, s *ssa.BasicBlock, known checkKnown) *ssa.Ret
 		w.seen[key] = true
 		ret = w.enter(b, s, known)
 	}
-	for i := len(facts) - 1; i >= 0; i-- {
-		if f := facts[i]; f.had {
+	for _, f := range slices.Backward(facts) {
+		if f.had {
 			known.facts[f.op] = f.was
 		} else {
 			delete(known.facts, f.op)
 		}
 	}
-	for i := len(conds) - 1; i >= 0; i-- {
-		if c := conds[i]; c.had {
+	for _, c := range slices.Backward(conds) {
+		if c.had {
 			known.conds[c.v] = c.was
 		} else {
 			delete(known.conds, c.v)
@@ -574,10 +574,8 @@ func checkClearedBefore(b *ssa.BasicBlock, at int, fv *ssa.FreeVar) bool {
 			continue
 		}
 		if st.Block() == b {
-			for _, in := range b.Instrs[:at] {
-				if in == ssa.Instruction(st) {
-					return true
-				}
+			if slices.Contains(b.Instrs[:at], ssa.Instruction(st)) {
+				return true
 			}
 			continue
 		}
