@@ -22,9 +22,9 @@ import (
 // Which element is not known, so a write to one does not replace another.
 const Elem = -1
 
-// ConstIndex is the path step of the element at a constant index i, which is
+// constIndex is the path step of the element at a constant index i, which is
 // told apart from the others. Elem matches it too.
-func ConstIndex(i int64) int { return indexBase - int(i) }
+func constIndex(i int64) int { return indexBase - int(i) }
 
 // IsIndex reports whether step is a constant index, and which.
 func IsIndex(step int) (int, bool) {
@@ -81,12 +81,12 @@ type Index struct {
 
 // Write is one value written, the instruction that wrote it, and where.
 type Write struct {
-	Val  ssa.Value
-	At   ssa.Instruction
-	Root ssa.Value
-	// Path is the fields and elements below Root. It is empty for a store
-	// to the whole of Root.
+	Val ssa.Value
+	At  ssa.Instruction
+	// Path is the fields and elements below root. It is empty for a store
+	// to the whole of root.
 	Path []int
+	root ssa.Value
 }
 
 // New indexes the writes in fn. calls answers what a call writes.
@@ -99,7 +99,7 @@ func New(fn *ssa.Function, calls CallWrites) *Index {
 		escaped: make(map[ssa.Value]bool),
 	}
 	add := func(root ssa.Value, path []int, val ssa.Value, at ssa.Instruction) {
-		w := Write{Val: val, At: at, Root: root, Path: path}
+		w := Write{Val: val, At: at, root: root, Path: path}
 		x.writes[root] = append(x.writes[root], w)
 		x.at[at] = append(x.at[at], w)
 	}
@@ -188,7 +188,7 @@ func Locate(addr ssa.Value) (ssa.Value, []int) {
 func elemStep(idx ssa.Value) int {
 	if k, ok := idx.(*ssa.Const); ok && k.Value != nil && k.Value.Kind() == constant.Int {
 		if n, exact := constant.Int64Val(k.Value); exact && n >= 0 && n < maxIndex {
-			return ConstIndex(n)
+			return constIndex(n)
 		}
 	}
 	return Elem
@@ -334,7 +334,7 @@ func (x *Index) Reaching(root ssa.Value, path []int, at ssa.Instruction, along *
 			}
 			stop := false
 			for _, w := range x.at[in] {
-				if w.Root != root || !storeOverlap(w.Path, path) {
+				if w.root != root || !storeOverlap(w.Path, path) {
 					continue
 				}
 				r.Writes = append(r.Writes, w)
