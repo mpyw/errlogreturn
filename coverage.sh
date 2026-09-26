@@ -3,7 +3,7 @@
 #
 # Every package is measured against every test, so a branch the analyzer's
 # fixtures reach counts for the package that holds it. What is not covered
-# should be a guard no input reaches: CLAUDE.md lists them.
+# should be a guard no input reaches: design/implementation.md lists them.
 set -o pipefail
 
 floor=99.5
