@@ -2,6 +2,7 @@ package internal
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -61,22 +62,10 @@ func (*Fact) AFact() {}
 //
 //declscope:package
 func (f *Fact) meaningful() bool {
-	for _, b := range f.FlowsTo {
-		if b != 0 {
-			return true
-		}
-	}
-	for _, l := range f.Logs {
-		if l {
-			return true
-		}
-	}
-	for _, w := range f.Writes {
-		if len(w) > 0 {
-			return true
-		}
-	}
-	return len(f.FieldFlows) > 0
+	return slices.ContainsFunc(f.FlowsTo, func(b uint64) bool { return b != 0 }) ||
+		slices.Contains(f.Logs, true) ||
+		slices.ContainsFunc(f.Writes, func(w [][]int) bool { return len(w) > 0 }) ||
+		len(f.FieldFlows) > 0
 }
 
 // String renders the fact the way the tests spell it: "carries p0→r1" for a

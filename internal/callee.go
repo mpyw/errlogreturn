@@ -2,6 +2,7 @@ package internal
 
 import (
 	"go/types"
+	"slices"
 
 	"golang.org/x/tools/go/ssa"
 
@@ -43,8 +44,7 @@ func resolveCallee(cc *ssa.CallCommon) callee {
 		return callee{fn: f, obj: typeutil.Func(f), inputs: cc.Args}
 	case *ssa.MakeClosure:
 		fn, _ := f.Fn.(*ssa.Function)
-		inputs := append(append([]ssa.Value{}, cc.Args...), f.Bindings...)
-		cl := callee{fn: fn, inputs: inputs}
+		cl := callee{fn: fn, inputs: slices.Concat(cc.Args, f.Bindings)}
 		if fn != nil {
 			cl.obj = typeutil.Func(fn)
 		}

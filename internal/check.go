@@ -6,6 +6,7 @@ import (
 	"go/constant"
 	"go/token"
 	"go/types"
+	"maps"
 	"math"
 	"math/bits"
 	"reflect"
@@ -128,11 +129,7 @@ func (c *checker) checkReturned(fn *ssa.Function, b *ssa.BasicBlock, i int, u si
 	var logged map[walkerOrigin]bool
 	if !u.deferred {
 		logged = c.walkerErrs(fn, u.values, logAt, nil, nil, nil)
-		for v := range logged {
-			if checkKnownNil(v, known) {
-				delete(logged, v)
-			}
-		}
+		maps.DeleteFunc(logged, func(v walkerOrigin, _ bool) bool { return checkKnownNil(v, known) })
 		if len(logged) == 0 {
 			return nil
 		}
@@ -377,20 +374,13 @@ func (w *checkWalk) relevant(cond ssa.Value, b *ssa.BasicBlock) bool {
 		if !checkKeys(cond, m, 0) {
 			w.cut[cond] = true
 		}
-		for k := range m {
-			keys = append(keys, k)
-		}
+		keys = slices.Collect(maps.Keys(m))
 		w.keysOf[cond] = keys
 	}
 	if w.cut[cond] {
 		return true
 	}
-	for _, k := range keys {
-		if w.reads.has(b, k) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(keys, func(k ssa.Value) bool { return w.reads.has(b, k) })
 }
 
 // checkInLoop reports whether b is on a cycle: it can reach itself. A cycle
@@ -415,10 +405,7 @@ func (c *checker) checkInLoop(b *ssa.BasicBlock) bool {
 func checkCycles(fn *ssa.Function) map[*ssa.BasicBlock]bool {
 	out := make(map[*ssa.BasicBlock]bool)
 	n := len(fn.Blocks)
-	index, low := make([]int, n), make([]int, n)
-	for i := range index {
-		index[i] = -1
-	}
+	index, low := slices.Repeat([]int{-1}, n), make([]int, n)
 	onStack := make([]bool, n)
 	var stack []*ssa.BasicBlock
 	next := 0
@@ -485,13 +472,7 @@ func checkCycles(fn *ssa.Function) map[*ssa.BasicBlock]bool {
 
 // enter extends the path from b into s, walks s, and takes the path back.
 func (w *checkWalk) enter(b, s *ssa.BasicBlock, known checkKnown) *ssa.Return {
-	pred := -1
-	for j, p := range s.Preds {
-		if p == b {
-			pred = j
-			break
-		}
-	}
+	pred := slices.Index(s.Preds, b)
 	// The path has not entered s, so none of its φ-nodes is resolved yet,
 	// and taking the path back unresolves them.
 	var resolved []*ssa.Phi
@@ -924,11 +905,8 @@ func checkSpread(fn *ssa.Function, n int, own [][]int) [][]uint64 {
 			bits[b.Index][i/64] |= 1 << (i % 64)
 		}
 	}
-	work := append([]*ssa.BasicBlock(nil), fn.Blocks...)
-	queued := make([]bool, len(fn.Blocks))
-	for i := range queued {
-		queued[i] = true
-	}
+	work := slices.Clone(fn.Blocks)
+	queued := slices.Repeat([]bool{true}, len(fn.Blocks))
 	for len(work) > 0 {
 		s := work[len(work)-1]
 		work = work[:len(work)-1]
@@ -1117,10 +1095,7 @@ func (w *checkWalk) checkSeenKey(s, pred *ssa.BasicBlock, known checkKnown) chec
 		}
 	}
 	if pred != nil && !w.frozen {
-		for j, p := range s.Preds {
-			if p != pred {
-				continue
-			}
+		if j := slices.Index(s.Preds, pred); j >= 0 {
 			for _, in := range s.Instrs {
 				phi, ok := in.(*ssa.Phi)
 				if !ok {
@@ -1130,7 +1105,6 @@ func (w *checkWalk) checkSeenKey(s, pred *ssa.BasicBlock, known checkKnown) chec
 					mix(uint64(w.reads.phiIdx[phi])*31 ^ ptr(phi.Edges[j]) ^ 0x2545f4914f6cdd1d)
 				}
 			}
-			break
 		}
 	}
 	for d := range w.defs {
@@ -1366,11 +1340,7 @@ func checkUses(v ssa.Value, phi *ssa.Phi, seen map[ssa.Value]bool) bool {
 		return checkUses(x.X, phi, seen)
 	case *ssa.Phi:
 		// A counter changed in the body is a φ-node made from it.
-		for _, e := range x.Edges {
-			if checkUses(e, phi, seen) {
-				return true
-			}
-		}
+		return slices.ContainsFunc(x.Edges, func(e ssa.Value) bool { return checkUses(e, phi, seen) })
 	}
 	return false
 }
@@ -1607,12 +1577,7 @@ func checkSame(a, b ssa.Value, depth int) bool {
 		if !ok1 || !ok2 || bx.Name() != by.Name() || (bx.Name() != "len" && bx.Name() != "cap") {
 			return false
 		}
-		for i := range x.Call.Args {
-			if !checkSame(x.Call.Args[i], y.Call.Args[i], depth+1) {
-				return false
-			}
-		}
-		return true
+		return slices.EqualFunc(x.Call.Args, y.Call.Args, func(a, b ssa.Value) bool { return checkSame(a, b, depth+1) })
 	case *ssa.UnOp:
 		y, ok := b.(*ssa.UnOp)
 		if !ok || x.Op != token.MUL || y.Op != token.MUL || !checkNothingBetween(x, y) {
@@ -2072,12 +2037,7 @@ func (s checkSet) holds(k *ssa.Const) (bool, bool) {
 	if !exact {
 		return false, false
 	}
-	for _, r := range s.iv {
-		if r[0] <= n && n <= r[1] {
-			return true, true
-		}
-	}
-	return false, true
+	return slices.ContainsFunc(s.iv, func(r [2]int64) bool { return r[0] <= n && n <= r[1] }), true
 }
 
 // checkResolve strips conversions from one interface to another from v, and
