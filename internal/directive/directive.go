@@ -11,6 +11,8 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+
+	"golang.org/x/tools/go/ast/inspector"
 )
 
 // tool is the tool name of every directive, as in //errlogreturn:ignore.
@@ -38,22 +40,23 @@ type ignore struct {
 	used bool
 }
 
-// Scan reads the directives in files. A generated file is read for sinks
-// only: nothing is reported in it, so neither its ignores nor its problems
-// mean anything.
-func Scan(fset *token.FileSet, files []*ast.File, info *types.Info) *Set {
+// Scan reads the directives in the files in. A generated file is read for
+// sinks only: nothing is reported in it, so neither its ignores nor its
+// problems mean anything.
+func Scan(fset *token.FileSet, in *inspector.Inspector, info *types.Info) *Set {
 	s := &Set{
 		fset:    fset,
 		sinks:   make(map[*types.Func]bool),
 		ignores: make(map[string]map[int]*ignore),
 	}
-	for _, f := range files {
-		s.scanFile(f, info)
+	for file := range in.Root().Children() {
+		s.scanFile(file, info)
 	}
 	return s
 }
 
-func (s *Set) scanFile(f *ast.File, info *types.Info) {
+func (s *Set) scanFile(file inspector.Cursor, info *types.Info) {
+	f := file.Node().(*ast.File)
 	// Each comment is parsed once. The syntax is walked only when the file
 	// has a sink directive, since only a sink needs its declaration.
 	type found struct {
@@ -86,8 +89,8 @@ func (s *Set) scanFile(f *ast.File, info *types.Info) {
 				}
 			}
 		}
-		ast.Inspect(f, func(n ast.Node) bool {
-			switch n := n.(type) {
+		for c := range file.Preorder((*ast.FuncDecl)(nil), (*ast.InterfaceType)(nil)) {
+			switch n := c.Node().(type) {
 			case *ast.FuncDecl:
 				claim(n.Doc, n.Name)
 			case *ast.InterfaceType:
@@ -98,8 +101,7 @@ func (s *Set) scanFile(f *ast.File, info *types.Info) {
 					}
 				}
 			}
-			return true
-		})
+		}
 	}
 	if ast.IsGenerated(f) {
 		return

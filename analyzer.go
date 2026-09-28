@@ -12,6 +12,7 @@ import (
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/buildssa"
+	"golang.org/x/tools/go/analysis/passes/inspect"
 
 	"github.com/mpyw/errlogreturn/internal"
 )
@@ -21,7 +22,7 @@ var Analyzer = &analysis.Analyzer{
 	Name:      "errlogreturn",
 	Doc:       "reports an error that is both logged and returned",
 	URL:       "https://github.com/mpyw/errlogreturn",
-	Requires:  []*analysis.Analyzer{buildssa.Analyzer},
+	Requires:  []*analysis.Analyzer{buildssa.Analyzer, inspect.Analyzer},
 	FactTypes: []analysis.Fact{new(internal.Fact)},
 	Run:       run,
 }
