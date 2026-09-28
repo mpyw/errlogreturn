@@ -166,3 +166,45 @@ func Second() error {
 		})
 	}
 }
+
+// TestDirectiveForms runs the command over the ways an ignore can be written.
+// A reason goes after //. Other text after the name is reported, and the
+// ignore does nothing, as in every tool of this family.
+func TestDirectiveForms(t *testing.T) {
+	bin := buildBinary(t)
+	report := func(pkg string) []string {
+		return []string{
+			pkg + "/" + pkg + ".go:12:3: error is logged here and also returned at line 13; log it or return it, not both",
+			pkg + "/" + pkg + ".go:13:3: \treturned here",
+		}
+	}
+	tests := []struct {
+		name    string
+		comment string
+		extra   string
+		code    int
+	}{
+		{name: "bare", comment: "//errlogreturn:ignore"},
+		{name: "slash", comment: "//errlogreturn:ignore // the caller traces it"},
+		{name: "glued", comment: "//errlogreturn:ignore//the caller traces it"},
+		{name: "words", comment: "//errlogreturn:ignore the caller traces it", extra: "errlogreturn:ignore takes no argument; write a reason after //", code: 3},
+		{name: "dash", comment: "//errlogreturn:ignore - the caller traces it", extra: "errlogreturn:ignore takes no argument; write a reason after //", code: 3},
+		{name: "typo", comment: "//errlogreturn:ignre", extra: "unknown directive errlogreturn:ignre", code: 3},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, code := run(t, bin, map[string]string{
+				tt.name + "/" + tt.name + ".go": logged(tt.name, "", "\t\t"+tt.comment+"\n"+logLine),
+			})
+			var want []string
+			if tt.extra != "" {
+				want = append(report(tt.name), tt.name+"/"+tt.name+".go:11:3: "+tt.extra)
+				slices.Sort(want)
+			}
+			if code != tt.code || !slices.Equal(got, want) {
+				t.Errorf("exit %d, output:\n%s\nwant exit %d, output:\n%s",
+					code, strings.Join(got, "\n"), tt.code, strings.Join(want, "\n"))
+			}
+		})
+	}
+}

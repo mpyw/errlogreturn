@@ -9,10 +9,17 @@ func TestVerb(t *testing.T) {
 	tests := []struct {
 		text string
 		want string
+		args string
 		ok   bool
 	}{
 		{text: "//errlogreturn:ignore", want: "ignore", ok: true},
-		{text: "//errlogreturn:ignore because", want: "ignore", ok: true},
+		{text: "//errlogreturn:ignore because", want: "ignore", args: "because", ok: true},
+		{text: "//errlogreturn:ignore // because", want: "ignore", ok: true},
+		{text: "//errlogreturn:ignore //because", want: "ignore", ok: true},
+		{text: "//errlogreturn:ignore//because", want: "ignore", ok: true},
+		{text: "//errlogreturn:ignore - because", want: "ignore", args: "- because", ok: true},
+		{text: "//errlogreturn:sink // all arguments", want: "sink", ok: true},
+		{text: "//errlogreturn:sink all arguments", want: "sink", args: "all arguments", ok: true},
 		{text: "// errlogreturn:ignore", ok: false},
 		{text: "//errlogreturn:sink", want: "sink", ok: true},
 		{text: "// errlogreturn:sink", ok: false},
@@ -24,9 +31,9 @@ func TestVerb(t *testing.T) {
 		{text: "// nothing here", ok: false},
 	}
 	for _, tt := range tests {
-		got, ok := verb(&ast.Comment{Text: tt.text})
-		if ok != tt.ok || got != tt.want {
-			t.Errorf("verb(%q) = %q, %v, want %q, %v", tt.text, got, ok, tt.want, tt.ok)
+		got, args, ok := verb(&ast.Comment{Text: tt.text})
+		if ok != tt.ok || got != tt.want || args != tt.args {
+			t.Errorf("verb(%q) = %q, %q, %v, want %q, %q, %v", tt.text, got, args, ok, tt.want, tt.args, tt.ok)
 		}
 	}
 }
