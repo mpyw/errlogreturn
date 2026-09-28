@@ -54,59 +54,71 @@ func Scan(fset *token.FileSet, files []*ast.File, info *types.Info) *Set {
 }
 
 func (s *Set) scanFile(f *ast.File, info *types.Info) {
-	generated := ast.IsGenerated(f)
-	placed := make(map[*ast.Comment]bool)
-	claim := func(doc *ast.CommentGroup, id *ast.Ident) {
-		if doc == nil {
-			return
-		}
-		for _, cm := range doc.List {
-			if v, ok := verb(cm); ok && v == "sink" {
-				placed[cm] = true
-				if obj, ok := info.Defs[id].(*types.Func); ok {
-					s.sinks[obj] = true
+	// Each comment is parsed once. The syntax is walked only when the file
+	// has a sink directive, since only a sink needs its declaration.
+	type found struct {
+		cm   *ast.Comment
+		verb string
+	}
+	var directives []found
+	placed := make(map[*ast.Comment]bool) // a sink directive, and whether it has a declaration
+	for _, cg := range f.Comments {
+		for _, cm := range cg.List {
+			if v, ok := verb(cm); ok {
+				directives = append(directives, found{cm: cm, verb: v})
+				if v == "sink" {
+					placed[cm] = false
 				}
 			}
 		}
 	}
-	ast.Inspect(f, func(n ast.Node) bool {
-		switch n := n.(type) {
-		case *ast.FuncDecl:
-			claim(n.Doc, n.Name)
-		case *ast.InterfaceType:
-			for _, m := range n.Methods.List {
-				if len(m.Names) == 1 {
-					claim(m.Doc, m.Names[0])
-					claim(m.Comment, m.Names[0])
+	if len(placed) > 0 {
+		claim := func(doc *ast.CommentGroup, id *ast.Ident) {
+			if doc == nil {
+				return
+			}
+			for _, cm := range doc.List {
+				if _, ok := placed[cm]; ok {
+					placed[cm] = true
+					if obj, ok := info.Defs[id].(*types.Func); ok {
+						s.sinks[obj] = true
+					}
 				}
 			}
 		}
-		return true
-	})
-	if generated {
+		ast.Inspect(f, func(n ast.Node) bool {
+			switch n := n.(type) {
+			case *ast.FuncDecl:
+				claim(n.Doc, n.Name)
+			case *ast.InterfaceType:
+				for _, m := range n.Methods.List {
+					if len(m.Names) == 1 {
+						claim(m.Doc, m.Names[0])
+						claim(m.Comment, m.Names[0])
+					}
+				}
+			}
+			return true
+		})
+	}
+	if ast.IsGenerated(f) {
 		return
 	}
 
 	lines := make(map[int]*ignore)
 	s.ignores[s.fset.Position(f.Pos()).Filename] = lines
-	for _, cg := range f.Comments {
-		for _, cm := range cg.List {
-			v, ok := verb(cm)
-			if !ok {
-				continue
+	for _, d := range directives {
+		switch d.verb {
+		case "ignore":
+			lines[s.fset.Position(d.cm.Pos()).Line] = &ignore{pos: d.cm.Pos()}
+		case "sink":
+			if !placed[d.cm] {
+				s.problems = append(s.problems, Problem{Pos: d.cm.Pos(),
+					Message: "errlogreturn:sink belongs in the doc comment of a function or an interface method"})
 			}
-			switch v {
-			case "ignore":
-				lines[s.fset.Position(cm.Pos()).Line] = &ignore{pos: cm.Pos()}
-			case "sink":
-				if !placed[cm] {
-					s.problems = append(s.problems, Problem{Pos: cm.Pos(),
-						Message: "errlogreturn:sink belongs in the doc comment of a function or an interface method"})
-				}
-			default:
-				s.problems = append(s.problems, Problem{Pos: cm.Pos(),
-					Message: "unknown directive errlogreturn:" + v})
-			}
+		default:
+			s.problems = append(s.problems, Problem{Pos: d.cm.Pos(),
+				Message: "unknown directive errlogreturn:" + d.verb})
 		}
 	}
 }
