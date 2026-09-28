@@ -11,6 +11,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"strings"
 
 	"golang.org/x/tools/go/ast/inspector"
 )
@@ -62,14 +63,15 @@ func (s *Set) scanFile(file inspector.Cursor, info *types.Info) {
 	type found struct {
 		cm   *ast.Comment
 		verb string
+		args string
 	}
 	var directives []found
 	placed := make(map[*ast.Comment]bool) // a sink directive, and whether it has a declaration
 	for _, cg := range f.Comments {
 		for _, cm := range cg.List {
-			if v, ok := verb(cm); ok {
-				directives = append(directives, found{cm: cm, verb: v})
-				if v == "sink" {
+			if v, args, ok := verb(cm); ok {
+				directives = append(directives, found{cm: cm, verb: v, args: args})
+				if v == "sink" && args == "" {
 					placed[cm] = false
 				}
 			}
@@ -112,10 +114,13 @@ func (s *Set) scanFile(file inspector.Cursor, info *types.Info) {
 	lines := make(map[int]*ignore)
 	s.ignores[s.fset.PositionFor(f.Pos(), false).Filename] = lines
 	for _, d := range directives {
-		switch d.verb {
-		case "ignore":
+		switch {
+		case d.args != "" && (d.verb == "ignore" || d.verb == "sink"):
+			s.problems = append(s.problems, Problem{Pos: d.cm.Pos(),
+				Message: "errlogreturn:" + d.verb + " takes no argument; write a reason after //"})
+		case d.verb == "ignore":
 			lines[s.fset.PositionFor(d.cm.Pos(), false).Line] = &ignore{pos: d.cm.Pos()}
-		case "sink":
+		case d.verb == "sink":
 			if !placed[d.cm] {
 				s.problems = append(s.problems, Problem{Pos: d.cm.Pos(),
 					Message: "errlogreturn:sink belongs in the doc comment of a function or an interface method"})
@@ -127,13 +132,24 @@ func (s *Set) scanFile(file inspector.Cursor, info *types.Info) {
 	}
 }
 
-// verb returns the directive's name, when cm is one of this tool's.
-func verb(cm *ast.Comment) (string, bool) {
-	d, ok := ast.ParseDirective(cm.Slash, cm.Text)
-	if !ok || d.Tool != tool {
-		return "", false
+// verb returns the directive's name and arguments, when cm is one of this
+// tool's. A trailing comment is a reason and is dropped first, so
+// //errlogreturn:ignore // why and //errlogreturn:ignore//why are both a bare
+// ignore. Neither directive takes an argument: text after the name that is
+// not behind // is reported rather than read as a reason, so that every
+// tool of this family reads a directive the same way.
+func verb(cm *ast.Comment) (name, args string, ok bool) {
+	text := cm.Text
+	if body, line := strings.CutPrefix(text, "//"); line {
+		if i := strings.Index(body, "//"); i >= 0 {
+			text = "//" + body[:i]
+		}
 	}
-	return d.Name, true
+	d, ok := ast.ParseDirective(cm.Slash, text)
+	if !ok || d.Tool != tool {
+		return "", "", false
+	}
+	return d.Name, d.Args, true
 }
 
 // Sink reports whether obj is declared with //errlogreturn:sink.

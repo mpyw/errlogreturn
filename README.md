@@ -244,7 +244,7 @@ The warning logs the previous attempt's error. The `return` hands back the last 
 
 ## Ignoring a report
 
-Put `//errlogreturn:ignore` on the reported line, or on the line above it. Text after the directive is free, so say why both are needed. Lines are counted in the file itself, so a `//line` directive does not change which line an ignore reaches.
+Put `//errlogreturn:ignore` on the reported line, or on the line above it. Write the reason after `//`, and say why both are needed. Lines are counted in the file itself, so a `//line` directive does not change which line an ignore reaches.
 
 Write it with no space after the slashes, as with `//go:` directives. `// errlogreturn:ignore` is a plain comment.
 
@@ -252,7 +252,7 @@ A report is anchored on the first line of the statement that logs. A directive a
 
 ```go
 err := dial()
-//errlogreturn:ignore the caller only traces this error
+//errlogreturn:ignore // the caller only traces this error
 slog.Error("open failed",
 	"err", err)
 return err
@@ -265,6 +265,7 @@ return err
 > | --- | --- |
 > | An ignore that silences nothing | `unused errlogreturn:ignore directive` |
 > | `//errlogreturn:sink` outside a doc comment | `errlogreturn:sink belongs in the doc comment of a function or an interface method` |
+> | Text after the name that is not behind `//` | `errlogreturn:ignore takes no argument; write a reason after //` |
 > | An unknown directive, such as `//errlogreturn:typo` | `unknown directive errlogreturn:typo` |
 
 ## Declaring your own logger
