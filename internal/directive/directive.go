@@ -105,12 +105,14 @@ func (s *Set) scanFile(f *ast.File, info *types.Info) {
 		return
 	}
 
+	// Keyed by the file and line on disk. A //line directive renames the
+	// positions below it, and two of them can give two lines one number.
 	lines := make(map[int]*ignore)
-	s.ignores[s.fset.Position(f.Pos()).Filename] = lines
+	s.ignores[s.fset.PositionFor(f.Pos(), false).Filename] = lines
 	for _, d := range directives {
 		switch d.verb {
 		case "ignore":
-			lines[s.fset.Position(d.cm.Pos()).Line] = &ignore{pos: d.cm.Pos()}
+			lines[s.fset.PositionFor(d.cm.Pos(), false).Line] = &ignore{pos: d.cm.Pos()}
 		case "sink":
 			if !placed[d.cm] {
 				s.problems = append(s.problems, Problem{Pos: d.cm.Pos(),
@@ -149,7 +151,7 @@ func (s *Set) Sinks() []*types.Func {
 // Ignored reports whether an ignore comment on the line of pos, or the line
 // above it, silences a report there, and records that it did.
 func (s *Set) Ignored(pos token.Pos) bool {
-	p := s.fset.Position(pos)
+	p := s.fset.PositionFor(pos, false)
 	lines := s.ignores[p.Filename]
 	for _, l := range []int{p.Line, p.Line - 1} {
 		if ig, ok := lines[l]; ok {

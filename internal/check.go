@@ -56,13 +56,14 @@ type checkBook struct {
 }
 
 // checkFile returns the syntax of the named file, and whether it is
-// generated. It is nil for a file the pass does not hold.
+// generated. It is nil for a file the pass does not hold. Files are named as
+// they are on disk: a //line directive renames every position below it.
 func (c *checker) checkFile(name string) (*ast.File, bool) {
 	if c.checkFiles == nil {
 		c.checkFiles = make(map[string]*ast.File)
 		c.checkGenerated = make(map[string]bool)
 		for _, f := range c.pass.Files {
-			n := c.pass.Fset.Position(f.Pos()).Filename
+			n := c.pass.Fset.PositionFor(f.Pos(), false).Filename
 			c.checkFiles[n] = f
 			if ast.IsGenerated(f) {
 				c.checkGenerated[n] = true
@@ -2254,7 +2255,7 @@ func (c *checker) checkReportable(pos token.Pos) bool {
 	if !pos.IsValid() {
 		return false
 	}
-	f, generated := c.checkFile(c.pass.Fset.Position(pos).Filename)
+	f, generated := c.checkFile(c.pass.Fset.PositionFor(pos, false).Filename)
 	return f != nil && !generated
 }
 
@@ -2266,6 +2267,7 @@ func (c *checker) checkReport(instr ssa.Instruction, ret *ssa.Return, u sinkUse)
 	if c.directives.Ignored(pos) {
 		return
 	}
+	// Adjusted, as the driver prints the report's own position.
 	line := c.pass.Fset.Position(ret.Pos()).Line
 	msg := "error is logged here and also returned at line %d; log it or return it, not both"
 	args := []any{line}
@@ -2282,7 +2284,7 @@ func (c *checker) checkReport(instr ssa.Instruction, ret *ssa.Return, u sinkUse)
 
 // checkStmt is the start of the statement enclosing pos.
 func (c *checker) checkStmt(pos token.Pos) token.Pos {
-	f, _ := c.checkFile(c.pass.Fset.Position(pos).Filename)
+	f, _ := c.checkFile(c.pass.Fset.PositionFor(pos, false).Filename)
 	if f == nil {
 		return pos
 	}

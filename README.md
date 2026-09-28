@@ -244,7 +244,7 @@ The warning logs the previous attempt's error. The `return` hands back the last 
 
 ## Ignoring a report
 
-Put `//errlogreturn:ignore` on the reported line, or on the line above it. Text after the directive is free, so say why both are needed.
+Put `//errlogreturn:ignore` on the reported line, or on the line above it. Text after the directive is free, so say why both are needed. Lines are counted in the file itself, so a `//line` directive does not change which line an ignore reaches.
 
 Write it with no space after the slashes, as with `//go:` directives. `// errlogreturn:ignore` is a plain comment.
 
