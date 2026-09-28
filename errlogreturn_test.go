@@ -10,7 +10,7 @@ import (
 
 func TestAnalyzer(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), errlogreturn.Analyzer, "basic", "helpers", "paths", "zerologuse", "zapuse", "logrususe",
-		"crosspkg", "directives", "generated", "generics", "regress", "recursive", "coverage", "linedirective")
+		"crosspkg", "directives", "generated", "generics", "regress", "recursive", "coverage", "linedirective", "sinkplacement")
 }
 
 func TestSinksFlag(t *testing.T) {

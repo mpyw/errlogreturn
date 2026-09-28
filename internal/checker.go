@@ -2,6 +2,8 @@ package internal
 
 import (
 	"golang.org/x/tools/go/analysis"
+	"golang.org/x/tools/go/analysis/passes/inspect"
+	"golang.org/x/tools/go/ast/inspector"
 
 	"github.com/mpyw/errlogreturn/internal/directive"
 )
@@ -28,6 +30,6 @@ func newChecker(pass *analysis.Pass, cfg Config) *checker {
 	return &checker{
 		pass:       pass,
 		cfg:        cfg,
-		directives: directive.Scan(pass.Fset, pass.Files, pass.TypesInfo),
+		directives: directive.Scan(pass.Fset, pass.ResultOf[inspect.Analyzer].(*inspector.Inspector), pass.TypesInfo),
 	}
 }
