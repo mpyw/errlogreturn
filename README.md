@@ -244,7 +244,7 @@ The warning logs the previous attempt's error. The `return` hands back the last 
 
 ## Ignoring a report
 
-Put `//errlogreturn:ignore` on the reported line, or on the line above it. Write the reason after `//`, and say why both are needed. Lines are counted in the file itself, so a `//line` directive does not change which line an ignore reaches.
+Put `//errlogreturn:ignore` on the reported line, or on the line above it. Write the reason after `//`, and say why both are needed.
 
 Write it with no space after the slashes, as with `//go:` directives. `// errlogreturn:ignore` is a plain comment.
 
@@ -259,14 +259,7 @@ return err
 ```
 
 > [!NOTE]
-> A directive that does nothing is reported.
->
-> | Written | Report |
-> | --- | --- |
-> | An ignore that silences nothing | `unused errlogreturn:ignore directive` |
-> | `//errlogreturn:sink` outside a doc comment | `errlogreturn:sink belongs in the doc comment of a function or an interface method` |
-> | Text after the name that is not behind `//` | `errlogreturn:ignore takes no argument; write a reason after //` |
-> | An unknown directive, such as `//errlogreturn:typo` | `unknown directive errlogreturn:typo` |
+> A directive that does nothing is reported: an unused ignore, a misplaced sink, an unknown name, or text after the name that is not behind `//`.
 
 ## Declaring your own logger
 
