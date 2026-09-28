@@ -3,6 +3,7 @@ package internal
 import (
 	"go/token"
 	"go/types"
+	"slices"
 
 	"golang.org/x/tools/go/ssa"
 
@@ -228,10 +229,10 @@ func (c *checker) summaryWrites(fn *ssa.Function, ins []ssa.Value) [][][]int {
 // own, and a getter with four returns would otherwise list one flow four
 // times.
 func summaryAddField(fields []FactFieldFlow, ff FactFieldFlow) []FactFieldFlow {
-	for _, f := range fields {
-		if f.In == ff.In && f.Out == ff.Out && summaryPrefix(f.Path, ff.Path) {
-			return fields
-		}
+	if slices.ContainsFunc(fields, func(f FactFieldFlow) bool {
+		return f.In == ff.In && f.Out == ff.Out && summaryPrefix(f.Path, ff.Path)
+	}) {
+		return fields
 	}
 	kept := fields[:0:0]
 	for _, f := range fields {
@@ -249,10 +250,8 @@ const summaryMaxPaths = 8
 // summaryAddPath adds path to paths, unless a path already there holds it. The
 // empty path holds every other one.
 func summaryAddPath(paths [][]int, path []int) [][]int {
-	for _, p := range paths {
-		if summaryPrefix(p, path) {
-			return paths
-		}
+	if slices.ContainsFunc(paths, func(p []int) bool { return summaryPrefix(p, path) }) {
+		return paths
 	}
 	kept := paths[:0:0]
 	for _, p := range paths {
@@ -268,15 +267,7 @@ func summaryAddPath(paths [][]int, path []int) [][]int {
 
 // summaryPrefix reports whether p is a prefix of q.
 func summaryPrefix(p, q []int) bool {
-	if len(p) > len(q) {
-		return false
-	}
-	for i := range p {
-		if p[i] != q[i] {
-			return false
-		}
-	}
-	return true
+	return len(p) <= len(q) && slices.Equal(p, q[:len(p)])
 }
 
 // summaryOnlyArgument reports whether every use of mi is as an argument of a
@@ -366,7 +357,7 @@ func (c *checker) summaryLogs(fn *ssa.Function, ins []ssa.Value) []bool {
 			if len(b.Preds) > 0 {
 				in = summaryFull(n)
 				for _, p := range b.Preds {
-					edge := append([]bool(nil), out[p.Index]...)
+					edge := slices.Clone(out[p.Index])
 					if i, ok := summaryNilEdge(p, b, pos); ok {
 						edge[i] = true
 					}
@@ -378,7 +369,7 @@ func (c *checker) summaryLogs(fn *ssa.Function, ins []ssa.Value) []bool {
 			for k := range in {
 				in[k] = in[k] || gen[b.Index][k]
 			}
-			if !summarySame(in, out[b.Index]) {
+			if !slices.Equal(in, out[b.Index]) {
 				out[b.Index] = in
 				changed = true
 			}
@@ -472,18 +463,5 @@ func summaryIsNil(v ssa.Value) bool {
 }
 
 func summaryFull(n int) []bool {
-	s := make([]bool, n)
-	for i := range s {
-		s[i] = true
-	}
-	return s
-}
-
-func summarySame(a, b []bool) bool {
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
+	return slices.Repeat([]bool{true}, n)
 }

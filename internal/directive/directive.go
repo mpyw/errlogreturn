@@ -11,6 +11,8 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"maps"
+	"slices"
 	"strings"
 
 	"golang.org/x/tools/go/ast/inspector"
@@ -141,8 +143,8 @@ func (s *Set) scanFile(file inspector.Cursor, info *types.Info) {
 func verb(cm *ast.Comment) (name, args string, ok bool) {
 	text := cm.Text
 	if body, line := strings.CutPrefix(text, "//"); line {
-		if i := strings.Index(body, "//"); i >= 0 {
-			text = "//" + body[:i]
+		if before, _, found := strings.Cut(body, "//"); found {
+			text = "//" + before
 		}
 	}
 	d, ok := ast.ParseDirective(cm.Slash, text)
@@ -159,11 +161,7 @@ func (s *Set) Sink(obj *types.Func) bool {
 
 // Sinks lists the declared sinks.
 func (s *Set) Sinks() []*types.Func {
-	out := make([]*types.Func, 0, len(s.sinks))
-	for obj := range s.sinks {
-		out = append(out, obj)
-	}
-	return out
+	return slices.Collect(maps.Keys(s.sinks))
 }
 
 // Ignored reports whether an ignore comment on the line of pos, or the line

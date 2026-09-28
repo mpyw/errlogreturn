@@ -264,11 +264,8 @@ func walkerPart(v ssa.Value) (ssa.Value, []int) {
 			rev = append(rev, store.Elem)
 			v = x.X
 		default:
-			path := make([]int, len(rev))
-			for i, s := range rev {
-				path[len(rev)-1-i] = s
-			}
-			return v, path
+			slices.Reverse(rev)
+			return v, rev
 		}
 	}
 }

@@ -203,11 +203,8 @@ func storeZero(v ssa.Value) bool {
 
 // storeReverse pairs root with the path steps collected from the leaf up.
 func storeReverse(root ssa.Value, rev []int) (ssa.Value, []int) {
-	path := make([]int, len(rev))
-	for i, s := range rev {
-		path[len(rev)-1-i] = s
-	}
-	return root, path
+	slices.Reverse(rev)
+	return root, rev
 }
 
 // LocateArg is where a value handed to a call points: Locate for a pointer
@@ -231,7 +228,7 @@ func LocateArg(v ssa.Value) (ssa.Value, []int) {
 
 // Join is the path rel below the memory at base.
 func Join(base, rel []int) []int {
-	return append(append(make([]int, 0, len(base)+len(rel)), base...), rel...)
+	return slices.Concat(base, rel)
 }
 
 // Rooted lists every write whose address starts from root, in any order.
@@ -374,11 +371,8 @@ func (x *Index) Reaching(root ssa.Value, path []int, at ssa.Instruction, along *
 	}
 	b := at.Block()
 	end := len(b.Instrs)
-	for i, in := range b.Instrs {
-		if in == at {
-			end = i
-			break
-		}
+	if i := slices.Index(b.Instrs, at); i >= 0 {
+		end = i
 	}
 	scan(b, end, along.on(b, end))
 	return r
@@ -393,12 +387,9 @@ func (x *Index) Reaching(root ssa.Value, path []int, at ssa.Instruction, along *
 // fills its target, and that value is what the target then stands for.
 func (x *Index) clobbers(in ssa.Instruction, root ssa.Value, path []int) bool {
 	if _, ok := in.(*ssa.RunDefers); ok {
-		for _, d := range x.deferred {
-			if x.callClobbers(d.Common(), root, path, true) {
-				return true
-			}
-		}
-		return false
+		return slices.ContainsFunc(x.deferred, func(d *ssa.Defer) bool {
+			return x.callClobbers(d.Common(), root, path, true)
+		})
 	}
 	// A local variable whose address was stored in memory may be reached
 	// by a store through a pointer loaded from memory, or from anything
