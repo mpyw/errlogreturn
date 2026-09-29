@@ -48,7 +48,7 @@ user/user.go:12:3: 	returned here
 
 | Method | Command | Needs |
 | --- | --- | --- |
-| **[mise](https://mise.jdx.dev/)** *(recommended)* | `mise use "github:mpyw/errlogreturn@0.1.1"` | Nothing. Installs the prebuilt binary |
+| **[mise](https://mise.jdx.dev/)** *(recommended)* | `mise use "github:mpyw/errlogreturn@0.2.0"` | Nothing. Installs the prebuilt binary |
 | `go tool` | `go get -tool github.com/mpyw/errlogreturn/cmd/errlogreturn@latest` | Go 1.27+ |
 | `go install` | `go install github.com/mpyw/errlogreturn/cmd/errlogreturn@latest` | Go 1.27+ |
 
@@ -72,11 +72,11 @@ The analyzed code may target any Go version.
 
 ```toml
 [tools]
-"github:mpyw/errlogreturn" = "0.1.1"
+"github:mpyw/errlogreturn" = "0.2.0"
 ```
 
 > [!CAUTION]
-> Pin a version tag instead of `@latest` in CI/CD pipelines, such as `@v0.1.1`. This protects the pipeline from supply chain attacks.
+> Pin a version tag instead of `@latest` in CI/CD pipelines, such as `@v0.2.0`. This protects the pipeline from supply chain attacks.
 
 </details>
 
