@@ -48,7 +48,7 @@ user/user.go:12:3: 	returned here
 
 | Method | Command | Needs |
 | --- | --- | --- |
-| **[mise](https://mise.jdx.dev/)** *(recommended)* | `mise use "github:mpyw/errlogreturn@0.2.0"` | Nothing. Installs the prebuilt binary |
+| **[mise](https://mise.jdx.dev/)** *(recommended)* | `mise use "github:mpyw/errlogreturn@0.3.0"` | Nothing. Installs the prebuilt binary |
 | `go tool` | `go get -tool github.com/mpyw/errlogreturn/cmd/errlogreturn@latest` | Go 1.27+ |
 | `go install` | `go install github.com/mpyw/errlogreturn/cmd/errlogreturn@latest` | Go 1.27+ |
 
@@ -72,11 +72,49 @@ The analyzed code may target any Go version.
 
 ```toml
 [tools]
-"github:mpyw/errlogreturn" = "0.2.0"
+"github:mpyw/errlogreturn" = "0.3.0"
 ```
 
 > [!CAUTION]
-> Pin a version tag instead of `@latest` in CI/CD pipelines, such as `@v0.2.0`. This protects the pipeline from supply chain attacks.
+> Pin a version tag instead of `@latest` in CI/CD pipelines, such as `@v0.3.0`. This protects the pipeline from supply chain attacks.
+
+</details>
+
+<details>
+<summary>Run inside golangci-lint</summary>
+
+errlogreturn is a [module plugin](https://golangci-lint.run/plugins/module-plugins/). It is not bundled with golangci-lint, so build a binary that holds it. Write `.custom-gcl.yml`:
+
+```yaml
+version: v2.13.1  # the golangci-lint release to build
+plugins:
+  - module: github.com/mpyw/errlogreturn
+    import: github.com/mpyw/errlogreturn/plugin
+    version: v0.3.0
+```
+
+Turn it on in `.golangci.yml`. The keys under `settings` are the flags. `sinks` takes the same comma-separated list as [`-sinks`](#declaring-your-own-logger). An unknown key or a misspelled name stops the run:
+
+```yaml
+version: "2"
+linters:
+  enable:
+    - errlogreturn
+  settings:
+    custom:
+      errlogreturn:
+        type: module
+        description: Reports an error that is both logged and returned.
+        settings:
+          sinks: "example.com/telemetry.Send,(example.com/telemetry.Client).Capture"
+```
+
+Then build and run it:
+
+```bash
+golangci-lint custom  # writes ./custom-gcl
+./custom-gcl run ./...
+```
 
 </details>
 
