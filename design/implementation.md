@@ -27,7 +27,7 @@ internal/typeutil/     error-type questions, the types.Func behind an SSA functi
 internal/known/        what is known about specific libraries
 internal/store/        the write index of a function, by root and path, and reaching writes
 internal/directive/    //errlogreturn: comments
-internal/sinkname/     reading a list of sink names, for the flag and the plugin
+internal/sinkname/     reading sink names: comma-separated for the flag, one per item for the plugin
 ```
 
 The engine is flat because its parts are mutually recursive. A summary asks which calls log, which asks for the callee's summary, which runs the walker, which asks what a call carries. Splitting that cycle across packages would only add exports. Everything that stands alone has its own package. **Keep new code out of the flat package unless it joins that cycle.**

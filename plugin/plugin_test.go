@@ -19,7 +19,7 @@ func TestPluginDefaults(t *testing.T) {
 
 func TestPluginSinks(t *testing.T) {
 	a := buildAnalyzer(t, map[string]any{
-		"sinks": "sinkflag.Report, (sinkflag.Client).Send, (*sinkflag.Value).Push, (sinkflag.Gen[T]).Emit, (sinkflag.Gen[T]).Put",
+		"sinks": []any{"sinkflag.Report", "(sinkflag.Client).Send", "(*sinkflag.Value).Push", "(sinkflag.Gen[T]).Emit", "(sinkflag.Gen[T]).Put"},
 	})
 	analysistest.Run(t, testdata(t), a, "sinkflag")
 }
@@ -30,9 +30,10 @@ func TestPluginRejectsBadSettings(t *testing.T) {
 		settings any
 		want     string
 	}{
-		{"an unknown key", map[string]any{"sink": "a.F"}, `unknown field "sink"`},
-		{"a value that is not a string", map[string]any{"sinks": []any{"a.F"}}, "reading settings"},
-		{"a misspelled sink", map[string]any{"sinks": "garbage(("}, "is not spelled"},
+		{"an unknown key", map[string]any{"sink": []any{"a.F"}}, `unknown field "sink"`},
+		{"a comma-separated string", map[string]any{"sinks": "a.F,b.G"}, "reading settings"},
+		{"two names in one item", map[string]any{"sinks": []any{"a.F,b.G"}}, "more than one name"},
+		{"a misspelled sink", map[string]any{"sinks": []any{"garbage(("}}, "is not spelled"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

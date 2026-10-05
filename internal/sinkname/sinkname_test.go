@@ -39,3 +39,31 @@ func TestParse(t *testing.T) {
 		}
 	}
 }
+
+func TestParseEach(t *testing.T) {
+	tests := []struct {
+		name    string
+		names   []string
+		want    []string
+		wantErr bool
+	}{
+		{name: "none", names: nil, want: nil},
+		{name: "one per item", names: []string{"a.F", " (*b.T).M "}, want: []string{"(b.T).M", "a.F"}},
+		{name: "a comma inside type arguments", names: []string{"(m.L[K, V]).Report"}, want: []string{"(m.L[K, V]).Report"}},
+		{name: "two names in one item", names: []string{"a.F,b.G"}, wantErr: true},
+		{name: "a misspelled name", names: []string{"garbage(("}, wantErr: true},
+	}
+	for _, tt := range tests {
+		got, err := ParseEach(tt.names)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("%s: error = %v, want error %v", tt.name, err, tt.wantErr)
+			continue
+		}
+		if tt.wantErr {
+			continue
+		}
+		if keys := slices.Sorted(maps.Keys(got)); !slices.Equal(keys, tt.want) {
+			t.Errorf("%s: got %v, want %v", tt.name, keys, tt.want)
+		}
+	}
+}

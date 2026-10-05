@@ -93,7 +93,7 @@ plugins:
     version: v0.3.0
 ```
 
-Turn it on in `.golangci.yml`. The keys under `settings` are the flags. `sinks` takes the same comma-separated list as [`-sinks`](#declaring-your-own-logger). An unknown key or a misspelled name stops the run:
+Turn it on in `.golangci.yml`. The keys under `settings` are the flags. `sinks` takes the names of [`-sinks`](#declaring-your-own-logger) as a list, one per item, not comma-separated. An unknown key or a misspelled name stops the run:
 
 ```yaml
 version: "2"
@@ -106,7 +106,9 @@ linters:
         type: module
         description: Reports an error that is both logged and returned.
         settings:
-          sinks: "example.com/telemetry.Send,(example.com/telemetry.Client).Capture"
+          sinks:
+            - example.com/telemetry.Send
+            - (example.com/telemetry.Client).Capture
 ```
 
 Then build and run it:

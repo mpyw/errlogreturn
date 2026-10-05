@@ -13,13 +13,30 @@ import (
 // type, and type arguments after it for a generic type.
 var spelling = regexp.MustCompile(`^(\(\*?[^()*\s\[\]]+\.[\pL_][\pL\pN_]*(\[[^()\[\]]+\])?\)|[^()*\s\[\]]+)\.[\pL_][\pL\pN_]*$`)
 
-// Parse reads a comma-separated list of names. The * of a pointer receiver
-// is dropped, so that either spelling names the method whatever its receiver
-// is. A name that is not spelled like a function is refused, since a typo
-// would otherwise switch its sink off in silence.
+// Parse reads a comma-separated list of names, as the -sinks flag takes it.
 func Parse(list string) (map[string]bool, error) {
+	return parseNames(split(list))
+}
+
+// ParseEach reads a list that holds one name per item, as the plugin's
+// settings take it. An item with a comma outside brackets is refused, since
+// it would otherwise pass as one name that matches nothing.
+func ParseEach(names []string) (map[string]bool, error) {
+	for _, s := range names {
+		if len(split(s)) > 1 {
+			return nil, fmt.Errorf("%q holds more than one name; give one per item", s)
+		}
+	}
+	return parseNames(names)
+}
+
+// parseNames reads each name. The * of a pointer receiver is dropped, so that
+// either spelling names the method whatever its receiver is. A name that is
+// not spelled like a function is refused, since a typo would otherwise switch
+// its sink off in silence.
+func parseNames(names []string) (map[string]bool, error) {
 	m := make(map[string]bool)
-	for _, s := range split(list) {
+	for _, s := range names {
 		s = strings.TrimSpace(s)
 		if s == "" {
 			continue

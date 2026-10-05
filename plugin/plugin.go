@@ -2,7 +2,7 @@
 //
 // Import it from .custom-gcl.yml to build a golangci-lint binary that holds
 // errlogreturn. The settings in .golangci.yml take the flags of the
-// errlogreturn command by name.
+// errlogreturn command by name. sinks is a list there, one name per item.
 package plugin
 
 import (
@@ -22,9 +22,9 @@ func init() {
 
 // pluginSettings is the settings block, one key per flag.
 type pluginSettings struct {
-	// Sinks is the -sinks flag: a comma-separated list of functions that log
-	// every argument.
-	Sinks string `json:"sinks"`
+	// Sinks is the -sinks flag: the functions that log every argument, one
+	// per item rather than comma-separated.
+	Sinks []string `json:"sinks"`
 }
 
 // pluginConfig is the plugin built from one settings block.
@@ -38,7 +38,7 @@ func newPlugin(settings any) (register.LinterPlugin, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading settings: %w", err)
 	}
-	sinks, err := sinkname.Parse(s.Sinks)
+	sinks, err := sinkname.ParseEach(s.Sinks)
 	if err != nil {
 		return nil, fmt.Errorf("sinks: %w", err)
 	}
