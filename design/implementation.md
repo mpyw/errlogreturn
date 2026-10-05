@@ -12,6 +12,7 @@ This file records design decisions and implementation details. The short, always
 
 ```text
 analyzer.go            Analyzer, the -sinks flag, ErrNoSSA
+plugin/                the golangci-lint module plugin: the settings in place of the flags
 cmd/errlogreturn/      singlechecker entry point
 internal/              the engine: one flat package, one namespace per file
   run.go               Run: summarize every function, export facts, check
@@ -26,9 +27,12 @@ internal/typeutil/     error-type questions, the types.Func behind an SSA functi
 internal/known/        what is known about specific libraries
 internal/store/        the write index of a function, by root and path, and reaching writes
 internal/directive/    //errlogreturn: comments
+internal/sinkname/     reading sink names: comma-separated for the flag, one per item for the plugin
 ```
 
 The engine is flat because its parts are mutually recursive. A summary asks which calls log, which asks for the callee's summary, which runs the walker, which asks what a call carries. Splitting that cycle across packages would only add exports. Everything that stands alone has its own package. **Keep new code out of the flat package unless it joins that cycle.**
+
+`plugin` builds its own copy of the analyzer from the settings. Setting the flags of `errlogreturn.Analyzer` instead would be state shared by every run in the process. It lives in the main module, since `plugin-module-register` adds no dependency beyond `golang.org/x/tools`. A nested module would need a second tag per release, and would make `declscope shrink` stand down on `internal/`.
 
 ### declscope
 

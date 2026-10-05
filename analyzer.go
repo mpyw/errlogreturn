@@ -6,15 +6,12 @@
 package errlogreturn
 
 import (
-	"fmt"
-	"regexp"
-	"strings"
-
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/buildssa"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 
 	"github.com/mpyw/errlogreturn/internal"
+	"github.com/mpyw/errlogreturn/internal/sinkname"
 )
 
 // Analyzer reports an error that is both logged and returned on one path.
@@ -57,53 +54,10 @@ func (f *sinkFlag) String() string { return f.raw }
 
 // Set parses a comma-separated list of names.
 func (f *sinkFlag) Set(v string) error {
-	m, err := parseSinks(v)
+	m, err := sinkname.Parse(v)
 	if err != nil {
 		return err
 	}
 	f.raw, f.names = v, m
 	return nil
-}
-
-// sinkSpelling is a function or a method as go/types names it:
-// pkg/path.Func, or (pkg/path.Type).Method with an optional * before the
-// type, and type arguments after it for a generic type.
-var sinkSpelling = regexp.MustCompile(`^(\(\*?[^()*\s\[\]]+\.[\pL_][\pL\pN_]*(\[[^()\[\]]+\])?\)|[^()*\s\[\]]+)\.[\pL_][\pL\pN_]*$`)
-
-// parseSinks reads a -sinks value. The * of a pointer receiver is dropped,
-// so that either spelling names the method whatever its receiver is.
-func parseSinks(flag string) (map[string]bool, error) {
-	m := make(map[string]bool)
-	for _, s := range splitSinks(flag) {
-		s = strings.TrimSpace(s)
-		if s == "" {
-			continue
-		}
-		if !sinkSpelling.MatchString(s) {
-			return nil, fmt.Errorf("%q is not spelled pkg/path.Func or (pkg/path.Type).Method", s)
-		}
-		m[strings.Replace(s, "(*", "(", 1)] = true
-	}
-	return m, nil
-}
-
-// splitSinks splits a -sinks value at the commas outside brackets, so that
-// the type arguments of (pkg.Map[K, V]).Put stay in one name.
-func splitSinks(flag string) []string {
-	var out []string
-	depth, start := 0, 0
-	for i, r := range flag {
-		switch r {
-		case '[':
-			depth++
-		case ']':
-			depth--
-		case ',':
-			if depth == 0 {
-				out = append(out, flag[start:i])
-				start = i + 1
-			}
-		}
-	}
-	return append(out, flag[start:])
 }
