@@ -13,7 +13,7 @@ import (
 
 // callee is a resolved call target.
 //
-//declscope:package
+//declscope:shared
 type callee struct {
 	// obj is the declared function or method, when there is one. It is nil
 	// for a function literal and for a synthetic wrapper, which are read
@@ -33,7 +33,7 @@ type callee struct {
 // resolveCallee finds what a call calls, and numbers its inputs the way the
 // callee's summary does.
 //
-//declscope:package
+//declscope:shared
 func resolveCallee(cc *ssa.CallCommon) callee {
 	if cc.IsInvoke() {
 		inputs := append([]ssa.Value{cc.Value}, cc.Args...)
@@ -59,7 +59,7 @@ func resolveCallee(cc *ssa.CallCommon) callee {
 // obj, or for a method value or a method expression, the method that the
 // synthetic wrapper calls. It is nil for a function literal.
 //
-//declscope:package
+//declscope:shared
 func (cl callee) calleeDeclared() *types.Func {
 	if cl.obj != nil {
 		return cl.obj
@@ -80,7 +80,7 @@ func (cl callee) calleeDeclared() *types.Func {
 // handed. A closure handed to any call writes what its summary says, since
 // the call may run it.
 //
-//declscope:package
+//declscope:shared
 func (c *checker) calleeWrites(cc *ssa.CallCommon) []store.Written {
 	cl := resolveCallee(cc)
 	if cl.builtin != nil {
@@ -131,7 +131,7 @@ func (c *checker) calleeWrites(cc *ssa.CallCommon) []store.Written {
 // calleeClosureWrites lists what a closure may write through the variables it
 // captured, for a closure handed to a call that may run it.
 //
-//declscope:package
+//declscope:shared
 func (c *checker) calleeClosureWrites(mc *ssa.MakeClosure) []store.Written {
 	// A closure's function is always a *ssa.Function.
 	fn := mc.Fn.(*ssa.Function)
@@ -151,7 +151,7 @@ func (c *checker) calleeClosureWrites(mc *ssa.MakeClosure) []store.Written {
 // calleeSummary is the callee's summary, read from its body when the pass has
 // one and from a fact otherwise. It is nil when neither exists.
 //
-//declscope:package
+//declscope:shared
 func (c *checker) calleeSummary(cl callee) *summary {
 	fn := cl.fn
 	if fn != nil && fn.Blocks != nil {
@@ -170,7 +170,7 @@ func (c *checker) calleeSummary(cl callee) *summary {
 // calleeFlows lists the inputs of a call that result idx may carry as a
 // whole, and the memory below inputs that it is made from.
 //
-//declscope:package
+//declscope:shared
 func (c *checker) calleeFlows(call *ssa.Call, idx int) ([]ssa.Value, []store.Written) {
 	cl := resolveCallee(call.Common())
 	if cl.builtin != nil {

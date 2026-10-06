@@ -11,7 +11,7 @@ import (
 
 // sinkUse is one place where values leave through a logger.
 //
-//declscope:package
+//declscope:shared
 type sinkUse struct {
 	// values are what is logged.
 	values []ssa.Value
@@ -30,7 +30,7 @@ type sinkUse struct {
 // sinkAt reports what instr logs, if it logs anything: directly through a
 // logger, or through a callee whose summary logs some of its inputs.
 //
-//declscope:package
+//declscope:shared
 func (c *checker) sinkAt(instr ssa.Instruction) (sinkUse, bool) {
 	ci, ok := instr.(ssa.CallInstruction)
 	if !ok {
