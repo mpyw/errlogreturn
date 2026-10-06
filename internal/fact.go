@@ -60,7 +60,7 @@ func (*Fact) AFact() {}
 
 // meaningful reports whether a fact says anything a caller could use.
 //
-//declscope:package
+//declscope:shared
 func (f *Fact) meaningful() bool {
 	return slices.ContainsFunc(f.FlowsTo, func(b uint64) bool { return b != 0 }) ||
 		slices.Contains(f.Logs, true) ||

@@ -22,7 +22,7 @@ import (
 
 // checkBook indexes the pass's files for reporting.
 //
-//declscope:package
+//declscope:shared
 type checkBook struct {
 	// checkFiles maps a file name to its syntax, for the statement a report
 	// is anchored on.
@@ -77,7 +77,7 @@ func (c *checker) checkFile(name string) (*ast.File, bool) {
 // check reports every place in fn where an error is logged and then returned
 // on the same path.
 //
-//declscope:package
+//declscope:shared
 func (c *checker) check(fn *ssa.Function) {
 	live := checkLive(fn)
 	for _, b := range fn.Blocks {

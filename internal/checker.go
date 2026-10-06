@@ -13,7 +13,7 @@ import (
 // read c.summaries rather than c.summary.summaries, and reaching into another
 // stage's state is a boundary crossing.
 //
-//declscope:package
+//declscope:shared
 type checker struct {
 	pass *analysis.Pass
 	cfg  Config
@@ -25,7 +25,7 @@ type checker struct {
 	checkBook
 }
 
-//declscope:package
+//declscope:shared
 func newChecker(pass *analysis.Pass, cfg Config) *checker {
 	return &checker{
 		pass:       pass,

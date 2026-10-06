@@ -43,7 +43,7 @@ type walker struct {
 // walkerOrigin is an error a trace found: an SSA value, or the contents of
 // memory the function did not write, which several loads read alike.
 //
-//declscope:package
+//declscope:shared
 type walkerOrigin struct {
 	// v is the value, or the root of the memory.
 	v ssa.Value
@@ -67,7 +67,7 @@ type walkerSeen struct {
 
 // walkerBook holds the write index of every function traced so far.
 //
-//declscope:package
+//declscope:shared
 type walkerBook struct {
 	//declscope:private
 	walkerIndexes map[*ssa.Function]*store.Index
@@ -75,7 +75,7 @@ type walkerBook struct {
 
 // walkerIndex indexes the writes in fn, once.
 //
-//declscope:package
+//declscope:shared
 func (c *checker) walkerIndex(fn *ssa.Function) *store.Index {
 	if c.walkerIndexes == nil {
 		c.walkerIndexes = make(map[*ssa.Function]*store.Index)
@@ -94,7 +94,7 @@ func (c *checker) walkerIndex(fn *ssa.Function) *store.Index {
 // when set, is the path a forward walk took to at, which memory is read
 // along.
 //
-//declscope:package
+//declscope:shared
 func (c *checker) walkerErrs(fn *ssa.Function, vs []ssa.Value, at ssa.Instruction, phis map[*ssa.Phi]ssa.Value, leaf ssa.Value, along *store.Along) map[walkerOrigin]bool {
 	w := c.newWalker(fn, phis, leaf, false)
 	w.along = along
@@ -105,7 +105,7 @@ func (c *checker) walkerErrs(fn *ssa.Function, vs []ssa.Value, at ssa.Instructio
 // inputs of fn they are made from as a whole, and the inputs they read memory
 // below, by path.
 //
-//declscope:package
+//declscope:shared
 func (c *checker) walkerInputs(fn *ssa.Function, vs []ssa.Value, at ssa.Instruction) (map[ssa.Value]bool, map[ssa.Value][][]int) {
 	w := c.newWalker(fn, nil, nil, true).trace(vs, at)
 	return w.inputs, w.fields

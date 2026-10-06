@@ -41,7 +41,7 @@ The repository is checked by [declscope](https://github.com/mpyw/declscope) with
 | Rule | Why |
 | --- | --- |
 | No `//declscope:core` | A core file hides its names from the naming rule. The model is split by type instead, so that names read naturally |
-| A struct shared across files states `//declscope:package` on the type | Its fields inherit it |
+| A struct shared across files states `//declscope:shared` on the type | Its fields inherit it |
 | A field not read from another file carries `//declscope:private` | Each field takes the smallest scope it needs |
 | A crossing field carries no directive | A field restating its type's scope is inert, and declscope reports it |
 | Private fields sit at the bottom of the struct | The fields another stage reads are the struct's interface, and come first |

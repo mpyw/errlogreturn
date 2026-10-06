@@ -15,7 +15,7 @@ import (
 // numbered as the function's parameters, receiver first, followed by its free
 // variables.
 //
-//declscope:package
+//declscope:shared
 type summary struct {
 	// flows[i] is a bit set of the results input i may carry into.
 	flows []uint64
@@ -37,7 +37,7 @@ type summary struct {
 
 // summaryBook holds every summary computed in the pass.
 //
-//declscope:package
+//declscope:shared
 type summaryBook struct {
 	//declscope:private
 	summaries map[*ssa.Function]*summary
@@ -49,7 +49,7 @@ type summaryBook struct {
 // summary that says nothing yet. That leans toward silence: a recursion can
 // only make a function carry or log less than it does.
 //
-//declscope:package
+//declscope:shared
 func (c *checker) summary(fn *ssa.Function) *summary {
 	if c.summaries == nil {
 		c.summaries = make(map[*ssa.Function]*summary)
