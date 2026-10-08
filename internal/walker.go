@@ -12,6 +12,30 @@ import (
 	"github.com/mpyw/errlogreturn/internal/typeutil"
 )
 
+// walkerOrigin is an error a trace found: an SSA value, or the contents of
+// memory the function did not write, which several loads read alike.
+//
+//declscope:shared
+type walkerOrigin struct {
+	// v is the value, or the root of the memory.
+	v ssa.Value
+	// path is the memory's path below v, rendered. It is empty for a
+	// value.
+	path string
+	// clob is the call after which the memory was read, when a call wrote
+	// it by a route the index does not follow. Two reads after one such
+	// call read the same thing.
+	clob ssa.Instruction
+}
+
+// walkerBook holds the write index of every function traced so far.
+//
+//declscope:shared
+type walkerBook struct {
+	//declscope:private
+	walkerIndexes map[*ssa.Function]*store.Index
+}
+
 // walker traces values back to what they were made from, within one function.
 //
 // It runs in one of two modes. Collecting errors, it records every error-typed
@@ -40,22 +64,6 @@ type walker struct {
 	fields map[ssa.Value][][]int
 }
 
-// walkerOrigin is an error a trace found: an SSA value, or the contents of
-// memory the function did not write, which several loads read alike.
-//
-//declscope:shared
-type walkerOrigin struct {
-	// v is the value, or the root of the memory.
-	v ssa.Value
-	// path is the memory's path below v, rendered. It is empty for a
-	// value.
-	path string
-	// clob is the call after which the memory was read, when a call wrote
-	// it by a route the index does not follow. Two reads after one such
-	// call read the same thing.
-	clob ssa.Instruction
-}
-
 // walkerSeen keys a visit. The contents of memory depend on where they are
 // read, so a read is keyed by the reading instruction and the path too.
 type walkerSeen struct {
@@ -63,14 +71,6 @@ type walkerSeen struct {
 	at    ssa.Instruction
 	path  string
 	whole bool
-}
-
-// walkerBook holds the write index of every function traced so far.
-//
-//declscope:shared
-type walkerBook struct {
-	//declscope:private
-	walkerIndexes map[*ssa.Function]*store.Index
 }
 
 // walkerIndex indexes the writes in fn, once.

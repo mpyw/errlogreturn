@@ -58,16 +58,6 @@ type FactFieldFlow struct {
 // AFact marks Fact as an analysis fact.
 func (*Fact) AFact() {}
 
-// meaningful reports whether a fact says anything a caller could use.
-//
-//declscope:shared
-func (f *Fact) meaningful() bool {
-	return slices.ContainsFunc(f.FlowsTo, func(b uint64) bool { return b != 0 }) ||
-		slices.Contains(f.Logs, true) ||
-		slices.ContainsFunc(f.Writes, func(w [][]int) bool { return len(w) > 0 }) ||
-		len(f.FieldFlows) > 0
-}
-
 // String renders the fact the way the tests spell it: "carries p0→r1" for a
 // parameter carried into a result, "logs p0" for a parameter always logged,
 // "writes p0.1" for field 1 of what a parameter points to, which the
@@ -103,4 +93,14 @@ func (f *Fact) String() string {
 		return "carries nothing"
 	}
 	return strings.Join(parts, ", ")
+}
+
+// meaningful reports whether a fact says anything a caller could use.
+//
+//declscope:shared
+func (f *Fact) meaningful() bool {
+	return slices.ContainsFunc(f.FlowsTo, func(b uint64) bool { return b != 0 }) ||
+		slices.Contains(f.Logs, true) ||
+		slices.ContainsFunc(f.Writes, func(w [][]int) bool { return len(w) > 0 }) ||
+		len(f.FieldFlows) > 0
 }

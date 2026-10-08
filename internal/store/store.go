@@ -23,10 +23,6 @@ import (
 // Which element is not known, so a write to one does not replace another.
 const Elem = -1
 
-// constIndex is the path step of the element at a constant index i, which is
-// told apart from the others. Elem matches it too.
-func constIndex(i int64) int { return indexBase - int(i) }
-
 // IsIndex reports whether step is a constant index, and which.
 func IsIndex(step int) (int, bool) {
 	if step <= indexBase {
@@ -35,17 +31,21 @@ func IsIndex(step int) (int, bool) {
 	return 0, false
 }
 
+// constIndex is the path step of the element at a constant index i, which is
+// told apart from the others. Elem matches it too.
+func constIndex(i int64) int { return indexBase - int(i) }
+
+// Deref is the path step through a pointer held in memory: j.inner.err, with
+// inner a pointer, is j at inner, Deref, err. A write to j.inner replaces what
+// is read through it, since the pointer then points elsewhere.
+const Deref = -2
+
 // indexBase is the step of constant index 0. Every step at or below it is a
 // constant index.
 const indexBase = -3
 
 // maxIndex bounds the constant indexes told apart. A larger one is an Elem.
 const maxIndex = 1 << 16
-
-// Deref is the path step through a pointer held in memory: j.inner.err, with
-// inner a pointer, is j at inner, Deref, err. A write to j.inner replaces what
-// is read through it, since the pointer then points elsewhere.
-const Deref = -2
 
 // Written is a value a call may write through, and the path below it that it
 // writes. An empty path is everything the value points to.

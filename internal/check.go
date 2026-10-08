@@ -56,24 +56,6 @@ type checkBook struct {
 	checkLoops map[*ssa.Function]map[*ssa.BasicBlock]bool
 }
 
-// checkFile returns the syntax of the named file, and whether it is
-// generated. It is nil for a file the pass does not hold. Files are named as
-// they are on disk: a //line directive renames every position below it.
-func (c *checker) checkFile(name string) (*ast.File, bool) {
-	if c.checkFiles == nil {
-		c.checkFiles = make(map[string]*ast.File)
-		c.checkGenerated = make(map[string]bool)
-		for _, f := range c.pass.Files {
-			n := c.pass.Fset.PositionFor(f.Pos(), false).Filename
-			c.checkFiles[n] = f
-			if ast.IsGenerated(f) {
-				c.checkGenerated[n] = true
-			}
-		}
-	}
-	return c.checkFiles[name], c.checkGenerated[name]
-}
-
 // check reports every place in fn where an error is logged and then returned
 // on the same path.
 //
@@ -94,6 +76,24 @@ func (c *checker) check(fn *ssa.Function) {
 			}
 		}
 	}
+}
+
+// checkFile returns the syntax of the named file, and whether it is
+// generated. It is nil for a file the pass does not hold. Files are named as
+// they are on disk: a //line directive renames every position below it.
+func (c *checker) checkFile(name string) (*ast.File, bool) {
+	if c.checkFiles == nil {
+		c.checkFiles = make(map[string]*ast.File)
+		c.checkGenerated = make(map[string]bool)
+		for _, f := range c.pass.Files {
+			n := c.pass.Fset.PositionFor(f.Pos(), false).Filename
+			c.checkFiles[n] = f
+			if ast.IsGenerated(f) {
+				c.checkGenerated[n] = true
+			}
+		}
+	}
+	return c.checkFiles[name], c.checkGenerated[name]
 }
 
 // checkReturned finds a return reachable from the logging instruction at
