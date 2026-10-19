@@ -3,11 +3,8 @@ package internal
 import (
 	"fmt"
 	"go/ast"
-	"go/constant"
 	"go/token"
-	"go/types"
 	"maps"
-	"math"
 	"math/bits"
 	"reflect"
 	"slices"
@@ -16,6 +13,8 @@ import (
 	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/go/ssa"
 
+	"github.com/mpyw/errlogreturn/internal/cond"
+	"github.com/mpyw/errlogreturn/internal/loop"
 	"github.com/mpyw/errlogreturn/internal/store"
 	"github.com/mpyw/errlogreturn/internal/typeutil"
 )
@@ -104,7 +103,7 @@ func (c *checker) checkFile(name string) (*ast.File, bool) {
 // on one branch is not matched with a value returned only from another.
 //
 // The walk does not take a loop's exit that cannot follow the log
-// (checkExits). In a retry loop that breaks before logging its last attempt,
+// (loop.Exits). In a retry loop that breaks before logging its last attempt,
 // the loop cannot exit right after a log, but the walk does not follow the
 // counter. It would take the exit, and report the last attempt's error, which
 // was never logged. spec/loop_exit.fsl proves what the rule relies on.
@@ -142,7 +141,7 @@ func (c *checker) checkReturned(fn *ssa.Function, b *ssa.BasicBlock, i int, u si
 	// would double the sets.
 	w := &checkWalk{
 		c: c, fn: fn, u: u, logBlock: b, logIndex: i, logged: logged,
-		exits:  checkExits(b),
+		exits:  loop.Exits(b),
 		reads:  c.checkReads(fn),
 		keysOf: make(map[ssa.Value][]ssa.Value),
 		cut:    make(map[ssa.Value]bool),
@@ -153,7 +152,7 @@ func (c *checker) checkReturned(fn *ssa.Function, b *ssa.BasicBlock, i int, u si
 	}
 	// With too many conditions decided at the log to carry, only the log's
 	// own block is read.
-	st, carried := w.checkRelevant(checkKnownFrom(known), b)
+	st, carried := w.checkRelevant(cond.KnownFrom(known), b)
 	w.full = !carried
 	for o := range logged {
 		if in, ok := o.v.(ssa.Instruction); ok && in.Block() != nil {
@@ -187,7 +186,7 @@ func (c *checker) checkReturned(fn *ssa.Function, b *ssa.BasicBlock, i int, u si
 	// consistent path: a log under if verbose is not matched with a return
 	// under if !verbose. It only misses what a later path would have seen.
 	w.frozen, w.steps = true, 0
-	st = st.without(func(ssa.Value) bool { return false })
+	st = st.Without(func(ssa.Value) bool { return false })
 	w.seen = map[checkSeen]bool{w.checkSeenKey(b, nil, st): true}
 	return w.block(b, i+1, st)
 }
@@ -234,7 +233,7 @@ type checkWalk struct {
 
 // block walks from b.Instrs[from], with known decided, and returns the first
 // return that hands back what was logged.
-func (w *checkWalk) block(b *ssa.BasicBlock, from int, known checkKnown) *ssa.Return {
+func (w *checkWalk) block(b *ssa.BasicBlock, from int, known cond.Known) *ssa.Return {
 	// A walk that has not settled after this many blocks is given up, and
 	// the log is not reported.
 	if w.steps++; w.steps > w.limit {
@@ -259,7 +258,7 @@ func (w *checkWalk) block(b *ssa.BasicBlock, from int, known checkKnown) *ssa.Re
 	if w.full {
 		return nil
 	}
-	for _, s := range checkSuccs(b, w.phis, known) {
+	for _, s := range cond.Succs(b, w.phis, known) {
 		if w.exits[[2]*ssa.BasicBlock{b, s}] {
 			continue
 		}
@@ -276,9 +275,9 @@ func (w *checkWalk) block(b *ssa.BasicBlock, from int, known checkKnown) *ssa.Re
 		}
 		// Entering s defines its values again. What was decided about a
 		// condition computed from one of them held for an earlier pass.
-		next := known.without(func(v ssa.Value) bool { return w.c.checkDepends(v, s) })
+		next := known.Without(func(v ssa.Value) bool { return w.c.checkDepends(v, s) })
 		if iff, ok := b.Instrs[len(b.Instrs)-1].(*ssa.If); ok && b.Succs[0] != b.Succs[1] && s != b {
-			next.decide(iff.Cond, s == b.Succs[0], w.phis)
+			next.Decide(iff.Cond, s == b.Succs[0], w.phis)
 		}
 		next, carried := w.checkRelevant(next, s)
 		if !carried {
@@ -301,14 +300,14 @@ func (w *checkWalk) block(b *ssa.BasicBlock, from int, known checkKnown) *ssa.Re
 // changed back on the way out, instead of a copy per step. Only a block
 // inside a loop can be entered again, so only a condition computed from a
 // value of a loop block can go stale.
-func (w *checkWalk) enterFrozen(b, s *ssa.BasicBlock, known checkKnown) *ssa.Return {
+func (w *checkWalk) enterFrozen(b, s *ssa.BasicBlock, known cond.Known) *ssa.Return {
 	type condWas struct {
 		v        ssa.Value
 		was, had bool
 	}
 	type factWas struct {
-		op  checkOperand
-		was checkSet
+		op  cond.Operand
+		was cond.Set
 		had bool
 	}
 	var conds []condWas
@@ -317,31 +316,31 @@ func (w *checkWalk) enterFrozen(b, s *ssa.BasicBlock, known checkKnown) *ssa.Ret
 	// can go stale. It also drops what no branch ahead reads, which keeps
 	// the map as small as a loop's own conditions.
 	if w.c.checkInLoop(s) {
-		for v, t := range known.conds {
+		for v, t := range known.Conds {
 			if w.c.checkDepends(v, s) || !w.relevant(v, s) {
 				conds = append(conds, condWas{v, t, true})
-				delete(known.conds, v)
+				delete(known.Conds, v)
 			}
 		}
-		for op, set := range known.facts {
-			if w.c.checkDepends(op.v, s) || !w.reads.has(s, op.v) {
+		for op, set := range known.Facts {
+			if w.c.checkDepends(op.Value(), s) || !w.reads.has(s, op.Value()) {
 				facts = append(facts, factWas{op, set, true})
-				delete(known.facts, op)
+				delete(known.Facts, op)
 			}
 		}
 	}
 	if iff, ok := b.Instrs[len(b.Instrs)-1].(*ssa.If); ok && b.Succs[0] != b.Succs[1] && s != b {
 		if c, ok := iff.Cond.(*ssa.BinOp); ok {
-			if v, _, ok := checkFactOf(c); ok {
-				if op, ok := checkOperandOf(v, w.phis); ok {
-					was, had := known.facts[op]
+			if v, _, ok := cond.FactOf(c); ok {
+				if op, ok := cond.OperandOf(v, w.phis); ok {
+					was, had := known.Facts[op]
 					facts = append(facts, factWas{op, was, had})
 				}
 			}
 		}
-		was, had := known.conds[iff.Cond]
+		was, had := known.Conds[iff.Cond]
 		conds = append(conds, condWas{iff.Cond, was, had})
-		known.decide(iff.Cond, s == b.Succs[0], w.phis)
+		known.Decide(iff.Cond, s == b.Succs[0], w.phis)
 	}
 	var ret *ssa.Return
 	if key := w.checkSeenKey(s, b, known); !w.seen[key] {
@@ -350,34 +349,34 @@ func (w *checkWalk) enterFrozen(b, s *ssa.BasicBlock, known checkKnown) *ssa.Ret
 	}
 	for _, f := range slices.Backward(facts) {
 		if f.had {
-			known.facts[f.op] = f.was
+			known.Facts[f.op] = f.was
 		} else {
-			delete(known.facts, f.op)
+			delete(known.Facts, f.op)
 		}
 	}
 	for _, c := range slices.Backward(conds) {
 		if c.had {
-			known.conds[c.v] = c.was
+			known.Conds[c.v] = c.was
 		} else {
-			delete(known.conds, c.v)
+			delete(known.Conds, c.v)
 		}
 	}
 	return ret
 }
 
-// relevant reports whether a branch reachable from b may read what cond
+// relevant reports whether a branch reachable from b may read what test
 // reads.
-func (w *checkWalk) relevant(cond ssa.Value, b *ssa.BasicBlock) bool {
-	keys, ok := w.keysOf[cond]
+func (w *checkWalk) relevant(test ssa.Value, b *ssa.BasicBlock) bool {
+	keys, ok := w.keysOf[test]
 	if !ok {
 		m := make(map[ssa.Value]bool)
-		if !checkKeys(cond, m, 0) {
-			w.cut[cond] = true
+		if !checkKeys(test, m, 0) {
+			w.cut[test] = true
 		}
 		keys = slices.Collect(maps.Keys(m))
-		w.keysOf[cond] = keys
+		w.keysOf[test] = keys
 	}
-	if w.cut[cond] {
+	if w.cut[test] {
 		return true
 	}
 	return slices.ContainsFunc(keys, func(k ssa.Value) bool { return w.reads.has(b, k) })
@@ -471,7 +470,7 @@ func checkCycles(fn *ssa.Function) map[*ssa.BasicBlock]bool {
 }
 
 // enter extends the path from b into s, walks s, and takes the path back.
-func (w *checkWalk) enter(b, s *ssa.BasicBlock, known checkKnown) *ssa.Return {
+func (w *checkWalk) enter(b, s *ssa.BasicBlock, known cond.Known) *ssa.Return {
 	pred := slices.Index(s.Preds, b)
 	// The path has not entered s, so none of its φ-nodes is resolved yet,
 	// and taking the path back unresolves them.
@@ -928,26 +927,26 @@ func checkSpread(fn *ssa.Function, n int, own [][]int) [][]uint64 {
 	return bits
 }
 
-// checkKeys adds the values a decision on cond reads to keys, and reports
+// checkKeys adds the values a decision on test reads to keys, and reports
 // whether it read them all. Past a depth it stops, and the caller treats the
 // condition as read everywhere. A compared operand is added in the form
-// checkSame reads it too, so that two reads of len(s) share a key.
-func checkKeys(cond ssa.Value, keys map[ssa.Value]bool, depth int) bool {
-	if keys[cond] {
+// cond.Same reads it too, so that two reads of len(s) share a key.
+func checkKeys(test ssa.Value, keys map[ssa.Value]bool, depth int) bool {
+	if keys[test] {
 		return true
 	}
-	if depth > checkMaxDepth {
+	if depth > cond.MaxDepth {
 		return false
 	}
-	keys[cond] = true
-	switch x := cond.(type) {
+	keys[test] = true
+	switch x := test.(type) {
 	case *ssa.UnOp:
 		if x.Op == token.NOT {
 			return checkKeys(x.X, keys, depth+1)
 		}
 	case *ssa.BinOp:
-		if v, _, ok := checkFactOf(x); ok {
-			keys[checkCanon(v)] = true
+		if v, _, ok := cond.FactOf(x); ok {
+			keys[cond.Canon(v)] = true
 			return checkKeys(v, keys, depth+1)
 		}
 	case *ssa.Phi:
@@ -960,9 +959,6 @@ func checkKeys(cond ssa.Value, keys map[ssa.Value]bool, depth int) bool {
 	return true
 }
 
-// checkMaxDepth bounds how deep checkKeys and checkEval read a condition.
-const checkMaxDepth = 16
-
 // checkRelevant keeps the decided conditions that share a value with what a
 // branch reachable from b reads. w.keysOf caches what each condition reads,
 // and w.cut holds the conditions checkKeys could not read in full, which are
@@ -971,21 +967,21 @@ const checkMaxDepth = 16
 // It reports false when more than checkMaxKnown are left. Then the path is
 // given up: forgetting a condition would let the walk take the very edge
 // that condition rules out, and report through it.
-func (w *checkWalk) checkRelevant(known checkKnown, b *ssa.BasicBlock) (checkKnown, bool) {
-	out := checkKnown{conds: make(map[ssa.Value]bool, len(known.conds)), facts: make(map[checkOperand]checkSet, len(known.facts))}
-	for cond, v := range known.conds {
-		if w.relevant(cond, b) {
-			out.conds[cond] = v
+func (w *checkWalk) checkRelevant(known cond.Known, b *ssa.BasicBlock) (cond.Known, bool) {
+	out := cond.Known{Conds: make(map[ssa.Value]bool, len(known.Conds)), Facts: make(map[cond.Operand]cond.Set, len(known.Facts))}
+	for test, v := range known.Conds {
+		if w.relevant(test, b) {
+			out.Conds[test] = v
 		}
 	}
-	for op, set := range known.facts {
-		if w.reads.has(b, op.v) {
-			out.facts[op] = set
+	for op, set := range known.Facts {
+		if w.reads.has(b, op.Value()) {
+			out.Facts[op] = set
 		}
 	}
 	// The frozen walk's key leaves the conditions out, so they cannot
 	// multiply its states, and it carries every one.
-	return out, w.frozen || len(out.conds)+len(out.facts) <= checkMaxKnown
+	return out, w.frozen || len(out.Conds)+len(out.Facts) <= checkMaxKnown
 }
 
 // checkMaxKnown bounds the values the decided conditions of a walk test.
@@ -1049,7 +1045,7 @@ type checkSeen struct {
 
 // checkSeenKey is the checkSeen of the walk entering s from pred with known.
 // pred is nil at the log's own block.
-func (w *checkWalk) checkSeenKey(s, pred *ssa.BasicBlock, known checkKnown) checkSeen {
+func (w *checkWalk) checkSeenKey(s, pred *ssa.BasicBlock, known cond.Known) checkSeen {
 	var h uint64
 	mix := func(x uint64) {
 		// The sum of a hash per entry is the same in any order.
@@ -1059,7 +1055,7 @@ func (w *checkWalk) checkSeenKey(s, pred *ssa.BasicBlock, known checkKnown) chec
 		h += x
 	}
 	ptr := func(v any) uint64 { return uint64(reflect.ValueOf(v).Pointer()) }
-	for v, t := range known.conds {
+	for v, t := range known.Conds {
 		if w.frozen {
 			break
 		}
@@ -1069,15 +1065,11 @@ func (w *checkWalk) checkSeenKey(s, pred *ssa.BasicBlock, known checkKnown) chec
 		}
 		mix(x)
 	}
-	for op, set := range known.facts {
+	for op, set := range known.Facts {
 		if w.frozen {
 			break
 		}
-		x := ptr(op.v)*131 + uint64(op.kind)
-		for _, r := range set.iv {
-			x = x*1000003 ^ uint64(r[0])
-			x = x*1000003 ^ uint64(r[1])
-		}
+		x := set.Mix(ptr(op.Value())*131 + uint64(op.Kind()))
 		mix(x ^ 0x7c3b1f2e9a4d6581)
 	}
 	// Only the φ-nodes live at s are read, from its bit set. The frozen
@@ -1119,94 +1111,6 @@ func (w *checkWalk) checkSeenKey(s, pred *ssa.BasicBlock, known checkKnown) chec
 		h += w.writes + w.c.checkWriteHash(s)
 	}
 	return checkSeen{b: s, hash: h}
-}
-
-// checkExits lists the loop exits the walk from a log in block b does not
-// take. A loop ends by a test of its counter, and each test ends it at one
-// value of the counter. The exit is taken right after a log only when the log
-// runs in that iteration. So an exit is kept when its value is the last one
-// on which the log can run, and every branch that decides the log leads to it
-// there. Every other exit of a counted loop is dropped. A retry loop that
-// breaks before logging its last attempt never exits right after a log.
-func checkExits(b *ssa.BasicBlock) map[[2]*ssa.BasicBlock]bool {
-	out := make(map[[2]*ssa.BasicBlock]bool)
-	for h := b; h != nil; h = h.Idom() {
-		body := checkBody(h)
-		if !body[b] {
-			continue
-		}
-		for _, in := range h.Instrs {
-			phi, ok := in.(*ssa.Phi)
-			if !ok {
-				break
-			}
-			lc, ok := checkCounter(h, b, phi, body)
-			if !ok {
-				continue
-			}
-			// A loop with one test ends only by it, on whatever value. A
-			// log that no branch on the counter decides runs on that one.
-			if len(lc.tests) == 1 && !checkReadsCounter(h, b, phi, lc, body) {
-				continue
-			}
-			for _, t := range lc.tests {
-				if !lc.known || t.at.off != lc.last.off || !checkLogsAt(h, b, phi, lc, body) {
-					out[t.exit] = true
-				}
-			}
-		}
-	}
-	return out
-}
-
-// checkBody lists the blocks of the loop headed by h: those h dominates that
-// lead back to it. It is empty when h heads no loop.
-func checkBody(h *ssa.BasicBlock) map[*ssa.BasicBlock]bool {
-	body := make(map[*ssa.BasicBlock]bool)
-	var stack []*ssa.BasicBlock
-	for _, p := range h.Preds {
-		if h.Dominates(p) && !body[p] {
-			body[p] = true
-			stack = append(stack, p)
-		}
-	}
-	for len(stack) > 0 {
-		x := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
-		if x == h {
-			continue
-		}
-		for _, p := range x.Preds {
-			if h.Dominates(p) && !body[p] {
-				body[p] = true
-				stack = append(stack, p)
-			}
-		}
-	}
-	if len(body) > 0 {
-		body[h] = true
-	}
-	return body
-}
-
-// checkReadsCounter reports whether a branch inside the loop headed by h,
-// other than the loop's own tests, reads the counter phi or another counter
-// of the loop to decide the log block b.
-func checkReadsCounter(h, b *ssa.BasicBlock, phi *ssa.Phi, lc checkLoop, body map[*ssa.BasicBlock]bool) bool {
-	for d := b; d != nil && d != h; d = d.Idom() {
-		if len(d.Preds) != 1 {
-			continue
-		}
-		p := d.Preds[0]
-		iff, ok := p.Instrs[len(p.Instrs)-1].(*ssa.If)
-		if !ok || lc.isTest[p] || !h.Dominates(p) || p.Succs[0] == p.Succs[1] {
-			continue
-		}
-		if checkUses(iff.Cond, phi, make(map[ssa.Value]bool)) || checkOtherCounter(h, phi, iff.Cond, body) {
-			return true
-		}
-	}
-	return false
 }
 
 // checkDep keys what checkDepends has found.
@@ -1255,859 +1159,6 @@ func checkDependsOn(v ssa.Value, s *ssa.BasicBlock, seen map[ssa.Value]bool) boo
 	return false
 }
 
-// checkOtherCounter reports whether cond reads a φ-node of h other than phi
-// that steps by a constant on every back edge: another counter of the loop.
-func checkOtherCounter(h *ssa.BasicBlock, phi *ssa.Phi, cond ssa.Value, body map[*ssa.BasicBlock]bool) bool {
-	for _, in := range h.Instrs {
-		other, ok := in.(*ssa.Phi)
-		if !ok {
-			break
-		}
-		if other == phi || !checkUses(cond, other, make(map[ssa.Value]bool)) {
-			continue
-		}
-		steps := true
-		for j, e := range other.Edges {
-			if j < len(h.Preds) && body[h.Preds[j]] {
-				if l := checkLinear(e); l.base != other || l.off == 0 {
-					steps = false
-				}
-			}
-		}
-		if steps {
-			return true
-		}
-	}
-	return false
-}
-
-// checkLogsAt reports whether the log block b may run on the last iteration
-// of the loop headed by h, whose counter is phi: each branch inside the loop
-// that decides b and reads the counter, other than the loop's own tests, leads
-// to b at the counter's last value, or may for some bound. A branch the rule
-// cannot read, such as i%2 == 0, is taken to lead away, which leans toward
-// silence.
-func checkLogsAt(h, b *ssa.BasicBlock, phi *ssa.Phi, lc checkLoop, body map[*ssa.BasicBlock]bool) bool {
-	for d := b; d != nil && d != h; d = d.Idom() {
-		if len(d.Preds) != 1 {
-			continue
-		}
-		p := d.Preds[0]
-		iff, ok := p.Instrs[len(p.Instrs)-1].(*ssa.If)
-		if !ok || lc.isTest[p] || !h.Dominates(p) || p.Succs[0] == p.Succs[1] {
-			continue
-		}
-		// A guard on another counter of the loop, as j > 1 is when j
-		// counts down beside i, cannot be read at i's last value.
-		if checkOtherCounter(h, phi, iff.Cond, body) {
-			return false
-		}
-		if !checkUses(iff.Cond, phi, make(map[ssa.Value]bool)) {
-			continue
-		}
-		v, ok, open := checkAt(iff.Cond, phi, lc.last)
-		if open {
-			// The branch leads to the log for some bound. The walk
-			// follows it there, as it follows any branch it cannot rule
-			// out.
-			continue
-		}
-		if !ok || v != (d == p.Succs[0]) {
-			return false
-		}
-	}
-	return true
-}
-
-// checkUses reports whether v is computed from phi, through arithmetic,
-// comparisons and conversions.
-func checkUses(v ssa.Value, phi *ssa.Phi, seen map[ssa.Value]bool) bool {
-	if v == ssa.Value(phi) {
-		return true
-	}
-	if seen[v] || len(seen) > 64 {
-		return false
-	}
-	seen[v] = true
-	switch x := v.(type) {
-	case *ssa.BinOp:
-		return checkUses(x.X, phi, seen) || checkUses(x.Y, phi, seen)
-	case *ssa.UnOp:
-		return x.Op != token.MUL && x.Op != token.ARROW && checkUses(x.X, phi, seen)
-	case *ssa.Convert:
-		return checkUses(x.X, phi, seen)
-	case *ssa.ChangeType:
-		return checkUses(x.X, phi, seen)
-	case *ssa.Phi:
-		// A counter changed in the body is a φ-node made from it.
-		return slices.ContainsFunc(x.Edges, func(e ssa.Value) bool { return checkUses(e, phi, seen) })
-	}
-	return false
-}
-
-// checkLin is a value in linear form: base plus off, or off alone when base
-// is nil.
-type checkLin struct {
-	base ssa.Value
-	off  int64
-}
-
-// checkLinear reads v as a base plus a constant.
-func checkLinear(v ssa.Value) checkLin {
-	switch x := v.(type) {
-	case *ssa.Const:
-		if x.Value != nil && x.Value.Kind() == constant.Int {
-			if n, exact := constant.Int64Val(x.Value); exact {
-				return checkLin{off: n}
-			}
-		}
-	case *ssa.Convert:
-		return checkLinear(x.X)
-	case *ssa.BinOp:
-		l, r := checkLinear(x.X), checkLinear(x.Y)
-		switch {
-		case x.Op == token.ADD && r.base == nil:
-			return checkLin{base: l.base, off: l.off + r.off}
-		case x.Op == token.ADD && l.base == nil:
-			return checkLin{base: r.base, off: l.off + r.off}
-		case x.Op == token.SUB && r.base == nil:
-			return checkLin{base: l.base, off: l.off - r.off}
-		}
-	}
-	return checkLin{base: v}
-}
-
-// checkLoop is what a loop's tests of its counter say: each test, and the
-// last value of the counter on which the log can run, when every test can be
-// read.
-type checkLoop struct {
-	tests  []checkTest
-	isTest map[*ssa.BasicBlock]bool
-	last   checkLin
-	known  bool
-}
-
-// checkTest is a branch that ends a loop by its counter: the exit edge, and
-// the counter's value in the iteration whose log the exit follows.
-type checkTest struct {
-	exit [2]*ssa.BasicBlock
-	at   checkLin
-}
-
-// checkCounter finds the tests of phi, a number defined at the head h of a
-// loop holding b, by which the loop ends: branches inside the loop with one
-// edge out of it, whose condition reads phi. The head's condition, a test at
-// the bottom of the body and a break in the middle all count. A φ-node no
-// such test reads, such as a count of failures, is not a counter.
-//
-// Each test is read when phi steps by 1 or -1 and the test compares it with
-// one bound. A test before the log in the iteration ends the loop on the next
-// iteration, so the log it follows ran on the last value that passes it. A
-// test after the log ends the loop in the iteration that logged, on the first
-// value that fails. The log runs on no value past the least of these.
-func checkCounter(h, b *ssa.BasicBlock, phi *ssa.Phi, body map[*ssa.BasicBlock]bool) (checkLoop, bool) {
-	if bt, ok := phi.Type().Underlying().(*types.Basic); !ok || bt.Info()&types.IsNumeric == 0 {
-		return checkLoop{}, false
-	}
-	// Every back edge must step the counter by the same 1 or -1. A body
-	// that adds 2 on one path and 1 on another has no last value to read.
-	var step int64
-	for j, e := range phi.Edges {
-		if j >= len(h.Preds) || !body[h.Preds[j]] {
-			continue
-		}
-		l := checkLinear(e)
-		if l.base != phi || (l.off != 1 && l.off != -1) || (step != 0 && l.off != step) {
-			step = 0
-			break
-		}
-		step = l.off
-	}
-	lc := checkLoop{isTest: make(map[*ssa.BasicBlock]bool), known: step != 0}
-	for _, p := range h.Parent().Blocks {
-		if !body[p] {
-			continue
-		}
-		iff, ok := p.Instrs[len(p.Instrs)-1].(*ssa.If)
-		if !ok || p.Succs[0] == p.Succs[1] {
-			continue
-		}
-		in0, in1 := body[p.Succs[0]], body[p.Succs[1]]
-		if in0 == in1 {
-			continue
-		}
-		cmp, ok := iff.Cond.(*ssa.BinOp)
-		if !ok || (!checkUses(cmp.X, phi, map[ssa.Value]bool{}) && !checkUses(cmp.Y, phi, map[ssa.Value]bool{})) {
-			continue
-		}
-		exit := p.Succs[1]
-		if in1 {
-			exit = p.Succs[0]
-		}
-		t := checkTest{exit: [2]*ssa.BasicBlock{p, exit}}
-		if lc.known {
-			// A test in the log's own block comes after the log.
-			at, ok := checkLastOf(cmp, in0, phi, step, p == b || !p.Dominates(b))
-			if ok && (len(lc.tests) == 0 || at.base == lc.last.base) {
-				t.at = at
-				if len(lc.tests) == 0 || (step > 0 && at.off < lc.last.off) || (step < 0 && at.off > lc.last.off) {
-					lc.last = at
-				}
-			} else {
-				lc.known = false
-			}
-		}
-		lc.isTest[p] = true
-		lc.tests = append(lc.tests, t)
-	}
-	if len(lc.tests) == 0 {
-		return checkLoop{}, false
-	}
-	return lc, true
-}
-
-// checkLastOf is the counter's value on the last iteration a test cmp lets
-// run: stay says whether the loop goes on when cmp holds, after whether the
-// test comes after the log in the iteration.
-func checkLastOf(cmp *ssa.BinOp, stay bool, phi *ssa.Phi, step int64, after bool) (checkLin, bool) {
-	op, lhs, rhs := cmp.Op, checkLinear(cmp.X), checkLinear(cmp.Y)
-	if lhs.base != ssa.Value(phi) {
-		lhs, rhs = rhs, lhs
-		op = checkFlip(op)
-	}
-	if lhs.base != ssa.Value(phi) || rhs.base == ssa.Value(phi) {
-		return checkLin{}, false
-	}
-	if !stay {
-		op = checkNegate(op)
-	}
-	// Counting toward a bound, going on while it is not reached is going on
-	// while it is below it, or above it when counting down.
-	if op == token.NEQ {
-		op = token.LSS
-		if step < 0 {
-			op = token.GTR
-		}
-	}
-	// The loop goes on while phi + lhs.off op rhs.
-	k := lhs.off
-	var last int64
-	switch {
-	case step > 0 && op == token.LSS:
-		last = rhs.off - k - 1
-	case step > 0 && op == token.LEQ:
-		last = rhs.off - k
-	case step < 0 && op == token.GTR:
-		last = rhs.off - k + 1
-	case step < 0 && op == token.GEQ:
-		last = rhs.off - k
-	default:
-		return checkLin{}, false
-	}
-	if after {
-		last += step
-	}
-	return checkLin{base: rhs.base, off: last}, true
-}
-
-// checkAt evaluates the comparison cond with phi at the value last, when both
-// sides are linear over one base. open reports that both sides are linear
-// but over different bases, as i > 0 is against a last value of n-1: it holds
-// for some bound and fails for another.
-func checkAt(cond ssa.Value, phi *ssa.Phi, last checkLin) (v, ok, open bool) {
-	cmp, isCmp := cond.(*ssa.BinOp)
-	if !isCmp {
-		return false, false, false
-	}
-	sub := func(l checkLin) checkLin {
-		if l.base == ssa.Value(phi) {
-			return checkLin{base: last.base, off: last.off + l.off}
-		}
-		return l
-	}
-	onPhi := checkLinear(cmp.X).base == ssa.Value(phi) || checkLinear(cmp.Y).base == ssa.Value(phi)
-	lhs, rhs := sub(checkLinear(cmp.X)), sub(checkLinear(cmp.Y))
-	if !onPhi {
-		return false, false, false
-	}
-	if lhs.base != rhs.base && !checkSame(lhs.base, rhs.base, 0) {
-		// Against a constant, a guard holds on the last value for some
-		// bound: i > 0 does whenever the loop runs twice. Against another
-		// bound, as i < *last is, nothing is known.
-		open := (lhs.base == nil || rhs.base == nil) && !checkUses(lhs.base, phi, map[ssa.Value]bool{}) && !checkUses(rhs.base, phi, map[ssa.Value]bool{})
-		return false, false, open
-	}
-	d := lhs.off - rhs.off
-	switch cmp.Op {
-	case token.EQL:
-		return d == 0, true, false
-	case token.NEQ:
-		return d != 0, true, false
-	case token.LSS:
-		return d < 0, true, false
-	case token.LEQ:
-		return d <= 0, true, false
-	case token.GTR:
-		return d > 0, true, false
-	case token.GEQ:
-		return d >= 0, true, false
-	}
-	return false, false, false
-}
-
-// checkSame reports whether a and b compute the same bound: two reads of
-// len(s), or two loads of one field that nothing can write between, which
-// SSA names apart. A wrong answer decides a branch the path cannot decide,
-// and the walk then leaves out an edge it could take, which misses a report.
-func checkSame(a, b ssa.Value, depth int) bool {
-	if a == b {
-		return true
-	}
-	if a == nil || b == nil || depth > 8 {
-		return false
-	}
-	switch x := a.(type) {
-	case *ssa.Call:
-		y, ok := b.(*ssa.Call)
-		if !ok || x.Call.IsInvoke() || y.Call.IsInvoke() || len(x.Call.Args) != len(y.Call.Args) {
-			return false
-		}
-		bx, ok1 := x.Call.Value.(*ssa.Builtin)
-		by, ok2 := y.Call.Value.(*ssa.Builtin)
-		if !ok1 || !ok2 || bx.Name() != by.Name() || (bx.Name() != "len" && bx.Name() != "cap") {
-			return false
-		}
-		return slices.EqualFunc(x.Call.Args, y.Call.Args, func(a, b ssa.Value) bool { return checkSame(a, b, depth+1) })
-	case *ssa.UnOp:
-		y, ok := b.(*ssa.UnOp)
-		if !ok || x.Op != token.MUL || y.Op != token.MUL || !checkNothingBetween(x, y) {
-			return false
-		}
-		rx, px := store.Locate(x.X)
-		ry, py := store.Locate(y.X)
-		return checkSame(rx, ry, depth+1) && slices.Equal(px, py)
-	case *ssa.Convert:
-		y, ok := b.(*ssa.Convert)
-		return ok && checkSame(x.X, y.X, depth+1)
-	}
-	return false
-}
-
-// checkNothingBetween reports whether loads x and y sit in one block with no
-// store and no call between them, so that they read one value.
-func checkNothingBetween(x, y *ssa.UnOp) bool {
-	if x.Block() != y.Block() {
-		return false
-	}
-	instrs := x.Block().Instrs
-	i, j := slices.Index(instrs, ssa.Instruction(x)), slices.Index(instrs, ssa.Instruction(y))
-	for _, instr := range instrs[min(i, j)+1 : max(i, j)] {
-		switch instr.(type) {
-		case *ssa.Store, ssa.CallInstruction, *ssa.MapUpdate, *ssa.Send:
-			return false
-		}
-	}
-	return true
-}
-
-// checkFlip swaps the sides of a comparison.
-func checkFlip(op token.Token) token.Token {
-	switch op {
-	case token.LSS:
-		return token.GTR
-	case token.LEQ:
-		return token.GEQ
-	case token.GTR:
-		return token.LSS
-	case token.GEQ:
-		return token.LEQ
-	}
-	return op
-}
-
-// checkNegate is the comparison that holds when op does not.
-func checkNegate(op token.Token) token.Token {
-	switch op {
-	case token.LSS:
-		return token.GEQ
-	case token.LEQ:
-		return token.GTR
-	case token.GTR:
-		return token.LEQ
-	case token.GEQ:
-		return token.LSS
-	case token.EQL:
-		return token.NEQ
-	case token.NEQ:
-		return token.EQL
-	}
-	return op
-}
-
-// checkSuccs lists the successors of b that the path may take: both edges of
-// a branch whose condition is not decided, and only the agreeing one of a
-// branch whose condition is.
-func checkSuccs(b *ssa.BasicBlock, phis map[*ssa.Phi]ssa.Value, known checkKnown) []*ssa.BasicBlock {
-	iff, ok := b.Instrs[len(b.Instrs)-1].(*ssa.If)
-	if !ok {
-		return b.Succs
-	}
-	if v, ok := checkEval(iff.Cond, phis, known, 0); ok {
-		if v {
-			return b.Succs[:1]
-		}
-		return b.Succs[1:]
-	}
-	return b.Succs
-}
-
-// checkEval decides a boolean on the path: a constant, a condition a branch
-// on the path decided, a φ-node the path resolved, or the negation of one.
-func checkEval(v ssa.Value, phis map[*ssa.Phi]ssa.Value, known checkKnown, depth int) (bool, bool) {
-	if depth > checkMaxDepth {
-		return false, false
-	}
-	if b, ok := known.conds[v]; ok {
-		return b, true
-	}
-	// A boolean compared with a constant on the path decides it: after
-	// v == false held, v is false.
-	if typeutil.Inert(v.Type()) {
-		for cond, taken := range known.conds {
-			c, ok := cond.(*ssa.BinOp)
-			if !ok {
-				continue
-			}
-			if v2, set, ok := checkFactOf(c); ok && v2 == v && set.eq != nil && set.eq.Kind() == constant.Bool {
-				return constant.BoolVal(set.eq) == (taken == set.in), true
-			}
-		}
-	}
-	switch x := v.(type) {
-	case *ssa.Const:
-		if x.Value != nil && x.Value.Kind() == constant.Bool {
-			return constant.BoolVal(x.Value), true
-		}
-	case *ssa.Phi:
-		// Following the path's resolutions spends no depth: the chain is
-		// as long as the path, and ends at a value that is not one.
-		if e := checkResolve(x, phis); e != ssa.Value(x) {
-			return checkEval(e, phis, known, depth)
-		}
-	case *ssa.UnOp:
-		if x.Op == token.NOT {
-			if b, ok := checkEval(x.X, phis, known, depth+1); ok {
-				return !b, true
-			}
-		}
-	case *ssa.BinOp:
-		return checkEvalCmp(x, phis, known, depth)
-	}
-	return false, false
-}
-
-// checkEvalCmp decides a comparison of a value with a constant from what the
-// path decided about other comparisons of the same value. v == true is v.
-// After mode == 1 held, mode == 2 does not. After code < 500 held,
-// code >= 500 does not. After err != nil held on a value, the same test of a
-// φ-node resolved to that value holds too.
-func checkEvalCmp(x *ssa.BinOp, phis map[*ssa.Phi]ssa.Value, known checkKnown, depth int) (bool, bool) {
-	v, q, ok := checkFactOf(x)
-	if !ok {
-		return false, false
-	}
-	if q.eq != nil && q.eq.Kind() == constant.Bool {
-		if b, ok := checkEval(v, phis, known, depth+1); ok {
-			return (b == constant.BoolVal(q.eq)) == q.in, true
-		}
-		return false, false
-	}
-	// A φ-node the path resolved to a constant is that constant.
-	if k, ok := checkResolve(v, phis).(*ssa.Const); ok {
-		return q.holds(k)
-	}
-	if op, ok := checkOperandOf(v, phis); ok && q.eq == nil {
-		if set, ok := known.facts[op]; ok {
-			if d, ok := set.decides(q); ok {
-				return d, true
-			}
-		}
-	}
-	for cond, taken := range known.conds {
-		c, ok := cond.(*ssa.BinOp)
-		if !ok || c == x {
-			continue
-		}
-		v2, set, ok := checkFactOf(c)
-		if !ok || !checkSameOperand(v, v2, phis) {
-			continue
-		}
-		if !taken {
-			set = set.not()
-		}
-		if d, ok := set.decides(q); ok {
-			return d, true
-		}
-	}
-	return false, false
-}
-
-// checkKnown is what a path decided. conds holds each condition a branch on
-// the path decided, by its value. facts holds, for each operand compared with
-// an integer or nil, the set of values the comparisons leave it: two switch
-// statements over one mode decide one fact, not a condition per case.
-type checkKnown struct {
-	conds map[ssa.Value]bool
-	facts map[checkOperand]checkSet
-}
-
-// checkOperand names what a comparison compares: a value, or its length or
-// capacity.
-type checkOperand struct {
-	v    ssa.Value
-	kind byte
-}
-
-// checkKnownFrom is what the conditions conds decide, before the path has
-// resolved anything.
-func checkKnownFrom(conds map[ssa.Value]bool) checkKnown {
-	k := checkKnown{conds: make(map[ssa.Value]bool), facts: make(map[checkOperand]checkSet)}
-	for cond, taken := range conds {
-		k.decide(cond, taken, nil)
-	}
-	return k
-}
-
-// without is a copy of k that leaves out what drop says of a condition, or
-// of an operand.
-func (k checkKnown) without(drop func(ssa.Value) bool) checkKnown {
-	out := checkKnown{conds: make(map[ssa.Value]bool, len(k.conds)+1), facts: make(map[checkOperand]checkSet, len(k.facts)+1)}
-	for cond, v := range k.conds {
-		if !drop(cond) {
-			out.conds[cond] = v
-		}
-	}
-	for op, set := range k.facts {
-		if !drop(op.v) {
-			out.facts[op] = set
-		}
-	}
-	return out
-}
-
-// decide records that cond is taken, or not. A comparison of an operand with
-// an integer or nil narrows the operand's fact. Any other condition is kept
-// as it is.
-func (k checkKnown) decide(cond ssa.Value, taken bool, phis map[*ssa.Phi]ssa.Value) {
-	if c, ok := cond.(*ssa.BinOp); ok {
-		if v, set, ok := checkFactOf(c); ok && set.eq == nil {
-			if op, ok := checkOperandOf(v, phis); ok {
-				if !taken {
-					set = set.not()
-				}
-				if prev, ok := k.facts[op]; ok && prev.isNil == set.isNil {
-					set = prev.and(set)
-				}
-				k.facts[op] = set
-				return
-			}
-		}
-	}
-	k.conds[cond] = taken
-}
-
-// checkOperandOf is the operand v stands for on the path: a value, through
-// conversions to an interface and the φ-nodes the path resolved, or the
-// length or capacity of one. A load is none: memory may change between two
-// reads of it.
-func checkOperandOf(v ssa.Value, phis map[*ssa.Phi]ssa.Value) (checkOperand, bool) {
-	r := checkResolve(v, phis)
-	switch x := r.(type) {
-	case *ssa.UnOp:
-		if x.Op == token.MUL {
-			return checkOperand{}, false
-		}
-	case *ssa.Call:
-		// The length of a map or a channel changes with no new value: an
-		// update or a send changes it. Only a slice's, an array's or a
-		// string's is fixed.
-		if b, ok := x.Call.Value.(*ssa.Builtin); ok && len(x.Call.Args) == 1 && checkFixedLen(x.Call.Args[0].Type()) {
-			switch b.Name() {
-			case "len":
-				return checkOperand{v: checkResolve(x.Call.Args[0], phis), kind: 'l'}, true
-			case "cap":
-				return checkOperand{v: checkResolve(x.Call.Args[0], phis), kind: 'c'}, true
-			}
-		}
-	}
-	return checkOperand{v: r}, true
-}
-
-// checkFixedLen reports whether a value of type t has a length no operation
-// on it changes: a slice, an array, a pointer to an array, or a string.
-func checkFixedLen(t types.Type) bool {
-	switch u := t.Underlying().(type) {
-	case *types.Slice, *types.Array:
-		return true
-	case *types.Pointer:
-		_, ok := u.Elem().Underlying().(*types.Array)
-		return ok
-	case *types.Basic:
-		return u.Info()&types.IsString != 0
-	}
-	return false
-}
-
-// and is the set of values in both s and q, two sets of one kind.
-func (s checkSet) and(q checkSet) checkSet {
-	var out [][2]int64
-	for _, a := range s.iv {
-		for _, b := range q.iv {
-			lo, hi := max(a[0], b[0]), min(a[1], b[1])
-			if lo <= hi {
-				out = append(out, [2]int64{lo, hi})
-			}
-		}
-	}
-	s.iv = out
-	return s
-}
-
-// checkSet is what a comparison with a constant says of the value compared.
-// For an integer or a nil test, it is a union of intervals within [lo, hi]:
-// a nil test reads nil as 0 and anything else as 1. For any other constant,
-// it is equality with eq when in holds, or inequality.
-type checkSet struct {
-	iv    [][2]int64
-	lo    int64
-	hi    int64
-	eq    constant.Value
-	in    bool
-	isNil bool
-}
-
-// checkFactOf splits a comparison of a value with a constant into the value
-// and what the comparison says of it.
-func checkFactOf(b *ssa.BinOp) (ssa.Value, checkSet, bool) {
-	op := b.Op
-	switch op {
-	case token.EQL, token.NEQ, token.LSS, token.LEQ, token.GTR, token.GEQ:
-	default:
-		return nil, checkSet{}, false
-	}
-	v, kv := b.X, b.Y
-	k, ok := kv.(*ssa.Const)
-	if !ok {
-		v, kv = b.Y, b.X
-		if k, ok = kv.(*ssa.Const); !ok {
-			return nil, checkSet{}, false
-		}
-		op = checkFlip(op)
-	}
-	if _, isConst := v.(*ssa.Const); isConst {
-		return nil, checkSet{}, false
-	}
-	switch {
-	case k.IsNil():
-		if op != token.EQL && op != token.NEQ {
-			return nil, checkSet{}, false
-		}
-		s := checkSet{isNil: true, lo: 0, hi: 1, iv: [][2]int64{{1, 1}}}
-		if op == token.EQL {
-			s.iv = [][2]int64{{0, 0}}
-		}
-		return v, s, true
-	case k.Value == nil:
-		return nil, checkSet{}, false
-	case k.Value.Kind() == constant.Int:
-		n, exact := constant.Int64Val(k.Value)
-		if !exact || n == math.MinInt64 || n == math.MaxInt64 {
-			return nil, checkSet{}, false
-		}
-		s := checkSet{lo: math.MinInt64, hi: math.MaxInt64}
-		switch op {
-		case token.EQL:
-			s.iv = [][2]int64{{n, n}}
-		case token.NEQ:
-			s.iv = [][2]int64{{math.MinInt64, n - 1}, {n + 1, math.MaxInt64}}
-		case token.LSS:
-			s.iv = [][2]int64{{math.MinInt64, n - 1}}
-		case token.LEQ:
-			s.iv = [][2]int64{{math.MinInt64, n}}
-		case token.GTR:
-			s.iv = [][2]int64{{n + 1, math.MaxInt64}}
-		case token.GEQ:
-			s.iv = [][2]int64{{n, math.MaxInt64}}
-		}
-		return v, s, true
-	}
-	if op != token.EQL && op != token.NEQ {
-		return nil, checkSet{}, false
-	}
-	return v, checkSet{eq: k.Value, in: op == token.EQL}, true
-}
-
-// not is the set of values s leaves out.
-func (s checkSet) not() checkSet {
-	if s.eq != nil {
-		s.in = !s.in
-		return s
-	}
-	var out [][2]int64
-	next, done := s.lo, false
-	for _, r := range s.iv {
-		if r[0] > next {
-			out = append(out, [2]int64{next, r[0] - 1})
-		}
-		if r[1] == s.hi {
-			done = true
-			break
-		}
-		next = r[1] + 1
-	}
-	if !done {
-		out = append(out, [2]int64{next, s.hi})
-	}
-	s.iv = out
-	return s
-}
-
-// decides reports what q says of a value known to lie in s: true when every
-// value of s satisfies q, false when none does.
-func (s checkSet) decides(q checkSet) (bool, bool) {
-	if s.eq != nil || q.eq != nil {
-		if s.eq == nil || q.eq == nil || !checkComparable(s.eq, q.eq) {
-			return false, false
-		}
-		same := constant.Compare(s.eq, token.EQL, q.eq)
-		switch {
-		case s.in:
-			return same == q.in, true
-		case same:
-			return !q.in, true
-		}
-		return false, false
-	}
-	if s.isNil != q.isNil || len(s.iv) == 0 {
-		return false, false
-	}
-	all, none := true, true
-	for _, a := range s.iv {
-		covered := false
-		for _, b := range q.iv {
-			if a[0] <= b[1] && b[0] <= a[1] {
-				none = false
-			}
-			if b[0] <= a[0] && a[1] <= b[1] {
-				covered = true
-			}
-		}
-		if !covered {
-			all = false
-		}
-	}
-	switch {
-	case all:
-		return true, true
-	case none:
-		return false, true
-	}
-	return false, false
-}
-
-// holds evaluates the comparison s stands for on the constant k.
-func (s checkSet) holds(k *ssa.Const) (bool, bool) {
-	switch {
-	case s.isNil:
-		if !k.IsNil() {
-			return false, false
-		}
-		return s.iv[0][0] == 0, true
-	case k.Value == nil:
-		return false, false
-	case s.eq != nil:
-		if !checkComparable(s.eq, k.Value) {
-			return false, false
-		}
-		return constant.Compare(s.eq, token.EQL, k.Value) == s.in, true
-	case k.Value.Kind() != constant.Int:
-		return false, false
-	}
-	n, exact := constant.Int64Val(k.Value)
-	if !exact {
-		return false, false
-	}
-	return slices.ContainsFunc(s.iv, func(r [2]int64) bool { return r[0] <= n && n <= r[1] }), true
-}
-
-// checkResolve strips conversions from one interface to another from v, and
-// follows a φ-node the path resolved to its edge, until a value that is
-// neither. A resolution seen before ends it. A conversion of a concrete value
-// to an interface is kept: a nil *T in an error is not a nil error.
-func checkResolve(v ssa.Value, phis map[*ssa.Phi]ssa.Value) ssa.Value {
-	seen := make(map[ssa.Value]bool)
-	for !seen[v] {
-		seen[v] = true
-		switch x := v.(type) {
-		case *ssa.ChangeInterface:
-			v = x.X
-		case *ssa.Phi:
-			e, ok := phis[x]
-			if !ok {
-				return v
-			}
-			v = e
-		default:
-			return v
-		}
-	}
-	return v
-}
-
-// checkSameOperand reports whether a and b are one value on the path.
-func checkSameOperand(a, b ssa.Value, phis map[*ssa.Phi]ssa.Value) bool {
-	a, b = checkResolve(a, phis), checkResolve(b, phis)
-	return a == b || checkSame(a, b, 0)
-}
-
-// checkCanon is the form of v that two reads of one bound share: the operand
-// of len or cap, the memory a load reads, or what a conversion converts.
-func checkCanon(v ssa.Value) ssa.Value {
-	for range checkMaxDepth {
-		switch x := v.(type) {
-		case *ssa.Call:
-			bi, ok := x.Call.Value.(*ssa.Builtin)
-			if !ok || (bi.Name() != "len" && bi.Name() != "cap") || len(x.Call.Args) != 1 {
-				return v
-			}
-			v = x.Call.Args[0]
-		case *ssa.UnOp:
-			if x.Op != token.MUL {
-				return v
-			}
-			v, _ = store.Locate(x.X)
-		case *ssa.Convert:
-			v = x.X
-		case *ssa.MakeInterface:
-			v = x.X
-		case *ssa.ChangeInterface:
-			v = x.X
-		default:
-			return v
-		}
-	}
-	return v
-}
-
-// checkComparable reports whether constant.Compare accepts a and b: the same
-// kind, or both numeric.
-func checkComparable(a, b constant.Value) bool {
-	num := func(k constant.Kind) bool {
-		return k == constant.Int || k == constant.Float || k == constant.Complex
-	}
-	return a.Kind() == b.Kind() || (num(a.Kind()) && num(b.Kind()))
-}
-
 // checkKnownNil reports whether the decided conditions say that v is nil: a
 // branch the log sits under compared it with nil.
 func checkKnownNil(o walkerOrigin, known map[ssa.Value]bool) bool {
@@ -2115,8 +1166,8 @@ func checkKnownNil(o walkerOrigin, known map[ssa.Value]bool) bool {
 		return false
 	}
 	v := o.v
-	for cond, taken := range known {
-		cmp, ok := cond.(*ssa.BinOp)
+	for test, taken := range known {
+		cmp, ok := test.(*ssa.BinOp)
 		if !ok || (cmp.Op != token.EQL && cmp.Op != token.NEQ) {
 			continue
 		}
@@ -2166,7 +1217,7 @@ func checkLive(fn *ssa.Function) map[*ssa.BasicBlock]bool {
 	for len(stack) > 0 {
 		b := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
-		for _, s := range checkSuccs(b, nil, checkKnown{}) {
+		for _, s := range cond.Succs(b, nil, cond.Known{}) {
 			if !live[s] {
 				live[s] = true
 				stack = append(stack, s)
