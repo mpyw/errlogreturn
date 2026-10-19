@@ -238,49 +238,360 @@ helpers/helpers.go:12:2: 	returned here
 
 ## What is not reported
 
-Every judgement leans toward silence. A missed report costs a duplicated log line, and a false one teaches people to ignore the linter.
+The linter leans toward silence. A missed report costs one extra log line. A false report teaches people to ignore the linter.
 
-| Case | Why |
+| Mark | Meaning |
 | --- | --- |
-| The log and the `return` are on different branches | No single path runs both |
-| A branch the path already decided, such as `if verbose { log(err) }` then `if !verbose { return err }` | The path that logs never reaches that `return`. The same holds for a value compared with constants, as two `switch mode` statements do. Code under a false constant, such as `if debug`, never runs at all |
-| A different error is returned | `log(err); return ErrNotFound` hands over nothing that was logged |
-| The error is translated | A helper that returns a sentinel instead of its argument does not carry it, in any package |
-| Only a check on the error is logged, such as `err != nil` or `errors.Is(err, target)` | A boolean or a number says whether the call failed, not what the error was. An error type that is a number, such as `syscall.Errno`, still counts |
-| Another field is logged, such as `j.ID` while the error goes to `j.Err` | Each field is read on its own, through calls and getters too |
-| The error is replaced after the log | A later assignment, a closure that assigns it, or a call that writes it, such as `fill(&err)`, leaves a new error. So does a deferred closure that always sets `err`, or sets `err = nil` right after logging it. A call that writes another field does not count, and neither does a deferred `Close` that sets `err` only when it is `nil` |
-| The error is logged in one loop iteration and returned in the next | The next iteration's error is a new value |
-| The log cannot run on the loop's last iteration, as in a retry loop that breaks before logging its last attempt | Then the loop cannot end right after the log, so its exit is not followed. A test of the loop counter that the analyzer cannot evaluate, such as `i%2 == 0`, counts as one |
-| The logged error is known to be `nil` there | A `nil` error is not a failure |
-| Generated files | A report there cannot be acted on. Their helpers are still followed |
-| A call through an interface or a function value | The callee is not known. It is taken to log nothing, and to pass its error arguments on to its error result. [Declare it](#declaring-your-own-logger) if it logs |
-| An error sent through a channel, or stored in a global and read in another function | The path is not followed |
-| A variable that may hold one of several errors when it is logged | It matches only a `return` of that same variable |
-| A helper that calls itself | Its own recursive call is taken to log nothing |
+| ✅ | Valid code. It is not reported |
+| ❌ | Invalid code. It is reported, although it looks close to a ✅ case |
+| ⚠️ | Invalid code. It logs and returns one error, but is not reported |
 
-<details>
-<summary>The loop case</summary>
+<table>
+<thead>
+<tr><th>Code</th><th>Valid?</th><th>Reason</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
 
 ```go
-package retry
+err := load()
+if fail {
+	slog.Error("failed", "err", err)
+	return nil
+}
+return err
+```
 
-import "log/slog"
+</td>
+<td>✅</td>
+<td>No single path runs both the log and the <code>return</code></td>
+</tr>
+<tr>
+<td>
 
-func Each(ids []string, load func(string) error) error {
-	var last error
-	for _, id := range ids {
-		if last != nil {
-			slog.Warn("retrying", "err", last)
+```go
+err := load()
+if verbose {
+	slog.Error("failed", "err", err)
+}
+if !verbose {
+	return err
+}
+return nil
+```
+
+</td>
+<td>✅</td>
+<td>The path that logs never reaches that <code>return</code>. Two <code>switch mode</code> statements over one value work the same way</td>
+</tr>
+<tr>
+<td>
+
+```go
+const debug = false
+
+err := load()
+if debug {
+	slog.Error("failed", "err", err)
+}
+return err
+```
+
+</td>
+<td>✅</td>
+<td>Code under a false constant never runs</td>
+</tr>
+<tr>
+<td>
+
+```go
+err := load()
+slog.Error("failed", "err", err)
+return ErrNotFound
+```
+
+</td>
+<td>✅</td>
+<td>The returned error is another one</td>
+</tr>
+<tr>
+<td>
+
+```go
+func ToPublic(error) error {
+	return ErrInternal
+}
+
+err := load()
+slog.Error("failed", "err", err)
+return ToPublic(err)
+```
+
+</td>
+<td>✅</td>
+<td><code>ToPublic</code> returns a sentinel, not its argument. This holds for a helper in any package</td>
+</tr>
+<tr>
+<td>
+
+```go
+err := load()
+slog.Info("done", "ok", err == nil)
+return err
+```
+
+</td>
+<td>✅</td>
+<td>A boolean or a number says whether the call failed, not what the error was. <code>errors.Is(err, target)</code> is the same</td>
+</tr>
+<tr>
+<td>
+
+```go
+e := errnoOf() // syscall.Errno
+slog.Error("failed", "errno", e)
+return e
+```
+
+</td>
+<td>❌</td>
+<td><code>syscall.Errno</code> is a number, but it is also an error. So it counts</td>
+</tr>
+<tr>
+<td>
+
+```go
+j.Err = load()
+slog.Error("failed", "id", j.ID)
+return j.Err
+```
+
+</td>
+<td>✅</td>
+<td>Each field is read on its own, through calls and getters too</td>
+</tr>
+<tr>
+<td>
+
+```go
+err := load()
+slog.Error("failed", "err", err)
+fill(&err)
+return err
+```
+
+</td>
+<td>✅</td>
+<td><code>fill</code> writes a new error into <code>err</code>. A later assignment, or a closure that assigns <code>err</code>, works the same way</td>
+</tr>
+<tr>
+<td>
+
+```go
+func Do() (err error) {
+	defer func() {
+		if err != nil {
+			slog.Error("failed", "err", err)
+			err = nil
 		}
-		last = load(id)
-	}
-	return last
+	}()
+	return load()
 }
 ```
 
-The warning logs the previous attempt's error. The `return` hands back the last attempt's, which was never logged. `errlogreturn ./...` prints nothing here.
+</td>
+<td>✅</td>
+<td>The deferred closure clears <code>err</code> right after it logs it. A deferred closure that always sets <code>err</code> works the same way</td>
+</tr>
+<tr>
+<td>
 
-</details>
+```go
+c.err = load()
+slog.Error("failed", "err", c.err)
+c.bump() // writes c.n only
+return c.err
+```
+
+</td>
+<td>❌</td>
+<td><code>bump</code> writes another field. <code>c.err</code> still holds the logged error</td>
+</tr>
+<tr>
+<td>
+
+```go
+func Do(f *os.File) (err error) {
+	defer func() {
+		cerr := f.Close()
+		if err == nil {
+			err = cerr
+		}
+	}()
+	err = load()
+	slog.Error("failed", "err", err)
+	return err
+}
+```
+
+</td>
+<td>❌</td>
+<td>The deferred <code>Close</code> sets <code>err</code> only when it is <code>nil</code>. The logged error is still returned</td>
+</tr>
+<tr>
+<td>
+
+```go
+var last error
+for _, id := range ids {
+	if last != nil {
+		slog.Warn("retrying", "err", last)
+	}
+	last = get(id)
+}
+return last
+```
+
+</td>
+<td>✅</td>
+<td>The warning logs the error of the attempt before. The <code>return</code> hands back the last one, which was never logged</td>
+</tr>
+<tr>
+<td>
+
+```go
+var err error
+for i := 0; ; i++ {
+	err = load()
+	if err == nil || i == n-1 {
+		break
+	}
+	slog.Warn("retrying", "err", err)
+}
+return err
+```
+
+</td>
+<td>✅</td>
+<td>The log cannot run on the last iteration. So the loop never ends right after the log</td>
+</tr>
+<tr>
+<td>
+
+```go
+err := load()
+if err == nil {
+	slog.Info("ok", "err", err)
+	return err
+}
+return nil
+```
+
+</td>
+<td>✅</td>
+<td>The logged error is <code>nil</code> there. A <code>nil</code> error is not a failure</td>
+</tr>
+</tbody>
+</table>
+
+These log and return one error, but are not reported:
+
+<table>
+<thead>
+<tr><th>Code</th><th>Valid?</th><th>Reason</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>
+
+```go
+var err error
+for i := range n {
+	err = load()
+	if i%2 == 0 {
+		slog.Warn("failed", "err", err)
+	}
+}
+return err
+```
+
+</td>
+<td>⚠️</td>
+<td><code>i%2 == 0</code> cannot be evaluated. It is taken as a test that skips the last iteration</td>
+</tr>
+<tr>
+<td>
+
+```go
+type Reporter interface {
+	Report(msg string, args ...any)
+}
+
+err := load()
+r.Report("failed", "err", err)
+return err
+```
+
+</td>
+<td>⚠️</td>
+<td>The callee of an interface method or a function value is not known. It is taken to log nothing, and to pass its error arguments on to its error result. <a href="#declaring-your-own-logger">Declare it</a> if it logs</td>
+</tr>
+<tr>
+<td>
+
+```go
+lastErr = load() // a global
+logLast()        // logs lastErr
+return lastErr
+```
+
+</td>
+<td>⚠️</td>
+<td>An error stored in a global and read in another function is not followed. Neither is an error sent through a channel</td>
+</tr>
+<tr>
+<td>
+
+```go
+e := err2
+if a {
+	e = err1
+}
+slog.Error("failed", "err", e)
+return err1
+```
+
+</td>
+<td>⚠️</td>
+<td><code>e</code> may hold either error. It matches only a <code>return</code> of <code>e</code> itself</td>
+</tr>
+<tr>
+<td>
+
+```go
+func logN(err error, n int) {
+	if n > 0 {
+		logN(err, n-1)
+		return
+	}
+	slog.Error("failed", "err", err)
+}
+
+err := load()
+logN(err, 3)
+return err
+```
+
+</td>
+<td>⚠️</td>
+<td>A recursive call is taken to log nothing. So <code>logN</code> does not count as a logger</td>
+</tr>
+</tbody>
+</table>
+
+> [!NOTE]
+> Nothing is reported in a generated file, since a report there cannot be acted on. Its helpers are still followed.
 
 ## Ignoring a report
 
