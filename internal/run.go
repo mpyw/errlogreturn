@@ -23,6 +23,8 @@ import (
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/buildssa"
+	"golang.org/x/tools/go/analysis/passes/inspect"
+	"golang.org/x/tools/go/ast/inspector"
 	"golang.org/x/tools/go/ssa"
 
 	"github.com/mpyw/errlogreturn/internal/typeutil"
@@ -32,13 +34,21 @@ import (
 // result, which means the analyzer was registered without its requirement.
 var ErrRunWithoutSSA = errors.New("errlogreturn: buildssa result missing")
 
+// ErrRunWithoutInspector is returned by Run when the pass carries no inspect
+// result, which means the analyzer was registered without its requirement.
+var ErrRunWithoutInspector = errors.New("errlogreturn: inspect result missing")
+
 // Run analyzes one package.
 func Run(pass *analysis.Pass, cfg Config) (any, error) {
 	info, ok := pass.ResultOf[buildssa.Analyzer].(*buildssa.SSA)
 	if !ok {
 		return nil, ErrRunWithoutSSA
 	}
-	c := newChecker(pass, cfg)
+	insp, ok := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
+	if !ok {
+		return nil, ErrRunWithoutInspector
+	}
+	c := newChecker(pass, insp, cfg)
 	for _, p := range c.directives.Problems() {
 		pass.Report(analysis.Diagnostic{Pos: p.Pos, Message: p.Message})
 	}
