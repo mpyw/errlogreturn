@@ -48,7 +48,7 @@ user/user.go:12:3: 	returned here
 
 | Method | Command | Needs |
 | --- | --- | --- |
-| **[mise](https://mise.jdx.dev/)** *(recommended)* | `mise use "github:mpyw/errlogreturn@0.3.1"` | Nothing. Installs the prebuilt binary |
+| **[mise](https://mise.jdx.dev/)** *(recommended)* | `mise use "github:mpyw/errlogreturn@0.4.0"` | Nothing. Installs the prebuilt binary |
 | `go tool` | `go get -tool github.com/mpyw/errlogreturn/cmd/errlogreturn@latest` | Go 1.27+ |
 | `go install` | `go install github.com/mpyw/errlogreturn/cmd/errlogreturn@latest` | Go 1.27+ |
 
@@ -72,11 +72,11 @@ The analyzed code may target any Go version.
 
 ```toml
 [tools]
-"github:mpyw/errlogreturn" = "0.3.1"
+"github:mpyw/errlogreturn" = "0.4.0"
 ```
 
 > [!CAUTION]
-> Pin a version tag instead of `@latest` in CI/CD pipelines, such as `@v0.3.1`. This protects the pipeline from supply chain attacks.
+> Pin a version tag instead of `@latest` in CI/CD pipelines, such as `@v0.4.0`. This protects the pipeline from supply chain attacks.
 
 </details>
 
@@ -90,7 +90,7 @@ version: v2.13.1  # the golangci-lint release to build
 plugins:
   - module: github.com/mpyw/errlogreturn
     import: github.com/mpyw/errlogreturn/plugin
-    version: v0.3.1
+    version: v0.4.0
 ```
 
 Turn it on in `.golangci.yml`. The keys under `settings` are the flags. `sinks` takes the names of [`-sinks`](#declaring-your-own-logger) as a list, one per item, not comma-separated. An unknown key or a misspelled name stops the run:
