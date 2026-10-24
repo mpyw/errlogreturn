@@ -118,6 +118,14 @@ golangci-lint custom  # writes ./custom-gcl
 ./custom-gcl run ./...
 ```
 
+From a Go program of your own, build an analyzer with `errlogreturn.New`. It takes the same settings as an `errlogreturn.Config`, and has no flags. `errlogreturn.Analyzer` is the one with flags:
+
+```go
+a, err := errlogreturn.New(errlogreturn.Config{
+	Sinks: []string{"example.com/log.Report"},
+})
+```
+
 </details>
 
 ## What counts as the same error
