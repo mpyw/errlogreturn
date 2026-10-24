@@ -666,6 +666,10 @@ errlogreturn -sinks 'example.com/telemetry.Send,(example.com/telemetry.Client).C
 
 The `*` may be written or left out, whatever the receiver is. A generic method is written without its own type parameters. A name that is not spelled this way stops the run with an error. A name that is spelled correctly but names nothing is not reported, so check the package path.
 
+## AI usage
+
+errlogreturn is developed with AI coding agents (Claude Code). The fixtures under `testdata/src/` define what it reports.
+
 ## License
 
 MIT

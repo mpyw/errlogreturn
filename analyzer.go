@@ -15,30 +15,31 @@ import (
 )
 
 // Analyzer reports an error that is both logged and returned on one path.
-var Analyzer = &analysis.Analyzer{
-	Name:      "errlogreturn",
-	Doc:       "reports an error that is both logged and returned",
-	URL:       "https://github.com/mpyw/errlogreturn",
-	Requires:  []*analysis.Analyzer{buildssa.Analyzer, inspect.Analyzer},
-	FactTypes: []analysis.Fact{new(internal.Fact)},
-	Run:       run,
-}
+var Analyzer = analyzerNew()
 
 // ErrNoSSA is returned when the pass carries no buildssa result, which means
 // the analyzer was registered without its requirement.
 var ErrNoSSA = internal.ErrRunWithoutSSA
 
-// sinks holds the -sinks flag, checked as it is set.
-var sinks sinkFlag
-
-func init() {
-	Analyzer.Flags.Var(&sinks, "sinks",
+// analyzerNew builds the analyzer with its -sinks flag. The flag lives in
+// the closure of Run, so nothing is shared but the analyzer itself.
+func analyzerNew() *analysis.Analyzer {
+	a := &analysis.Analyzer{
+		Name:      "errlogreturn",
+		Doc:       "reports an error that is both logged and returned",
+		URL:       "https://github.com/mpyw/errlogreturn",
+		Requires:  []*analysis.Analyzer{buildssa.Analyzer, inspect.Analyzer},
+		FactTypes: []analysis.Fact{new(internal.Fact)},
+	}
+	// sinks holds the -sinks flag, checked as it is set.
+	sinks := new(sinkFlag)
+	a.Flags.Var(sinks, "sinks",
 		"comma-separated functions that log every argument, "+
 			"spelled pkg/path.Func or (pkg/path.Type).Method")
-}
-
-func run(pass *analysis.Pass) (any, error) {
-	return internal.Run(pass, internal.Config{Sinks: sinks.names})
+	a.Run = func(pass *analysis.Pass) (any, error) {
+		return internal.Run(pass, internal.Config{Sinks: sinks.names})
+	}
+	return a
 }
 
 // sinkFlag is the -sinks flag. A name that is not spelled like a function is
