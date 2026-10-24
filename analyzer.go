@@ -25,6 +25,10 @@ var Analyzer = analyzerWithFlags()
 // the analyzer was registered without its requirement.
 var ErrNoSSA = internal.ErrRunWithoutSSA
 
+// ErrNoInspector is returned when the pass carries no inspect result, which
+// means the analyzer was registered without its requirement.
+var ErrNoInspector = internal.ErrRunWithoutInspector
+
 // Config holds the settings of an analyzer that New builds. The zero Config
 // names no extra sink.
 type Config struct {
