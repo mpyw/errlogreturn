@@ -12,8 +12,6 @@ import (
 	"golang.org/x/tools/go/analysis"
 
 	"github.com/mpyw/errlogreturn"
-	"github.com/mpyw/errlogreturn/internal"
-	"github.com/mpyw/errlogreturn/internal/sinkname"
 )
 
 func init() {
@@ -27,10 +25,9 @@ type pluginSettings struct {
 	Sinks []string `json:"sinks"`
 }
 
-// pluginConfig is the plugin built from one settings block.
-type pluginConfig struct {
-	// cfg is what the settings resolve to.
-	cfg internal.Config
+// pluginAnalyzer is the plugin built from one settings block.
+type pluginAnalyzer struct {
+	analyzer *analysis.Analyzer
 }
 
 func newPlugin(settings any) (register.LinterPlugin, error) {
@@ -38,31 +35,20 @@ func newPlugin(settings any) (register.LinterPlugin, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading settings: %w", err)
 	}
-	sinks, err := sinkname.ParseEach(s.Sinks)
+	a, err := errlogreturn.New(errlogreturn.Config{Sinks: s.Sinks})
 	if err != nil {
-		return nil, fmt.Errorf("sinks: %w", err)
+		return nil, fmt.Errorf("settings: %w", err)
 	}
-	return &pluginConfig{cfg: internal.Config{Sinks: sinks}}, nil
+	return &pluginAnalyzer{analyzer: a}, nil
 }
 
-// BuildAnalyzers gives errlogreturn's analyzer, with the sinks the settings
-// name. It is a copy, so the flags of errlogreturn.Analyzer are left alone.
-func (p *pluginConfig) BuildAnalyzers() ([]*analysis.Analyzer, error) {
-	cfg := p.cfg
-	a := errlogreturn.Analyzer
-	return []*analysis.Analyzer{{
-		Name:      a.Name,
-		Doc:       a.Doc,
-		URL:       a.URL,
-		Requires:  a.Requires,
-		FactTypes: a.FactTypes,
-		Run: func(pass *analysis.Pass) (any, error) {
-			return internal.Run(pass, cfg)
-		},
-	}}, nil
+// BuildAnalyzers gives the analyzer that errlogreturn.New built from the
+// settings. It has no flags, so errlogreturn.Analyzer is left alone.
+func (p *pluginAnalyzer) BuildAnalyzers() ([]*analysis.Analyzer, error) {
+	return []*analysis.Analyzer{p.analyzer}, nil
 }
 
 // GetLoadMode asks for type information, which buildssa needs.
-func (*pluginConfig) GetLoadMode() string {
+func (*pluginAnalyzer) GetLoadMode() string {
 	return register.LoadModeTypesInfo
 }

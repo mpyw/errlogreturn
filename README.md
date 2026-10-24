@@ -118,6 +118,14 @@ golangci-lint custom  # writes ./custom-gcl
 ./custom-gcl run ./...
 ```
 
+From a Go program of your own, build an analyzer with `errlogreturn.New`. It takes the same settings as an `errlogreturn.Config`, and has no flags. `errlogreturn.Analyzer` is the one with flags:
+
+```go
+a, err := errlogreturn.New(errlogreturn.Config{
+	Sinks: []string{"example.com/log.Report"},
+})
+```
+
 </details>
 
 ## What counts as the same error
@@ -665,6 +673,10 @@ errlogreturn -sinks 'example.com/telemetry.Send,(example.com/telemetry.Client).C
 | A generic method of a generic type | `(example.com/telemetry.Queue[T]).Map` |
 
 The `*` may be written or left out, whatever the receiver is. A generic method is written without its own type parameters. A name that is not spelled this way stops the run with an error. A name that is spelled correctly but names nothing is not reported, so check the package path.
+
+## AI usage
+
+errlogreturn is developed with AI coding agents (Claude Code). The fixtures under `testdata/src/` define what it reports.
 
 ## License
 

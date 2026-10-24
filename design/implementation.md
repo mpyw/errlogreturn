@@ -11,8 +11,8 @@ This file records design decisions and implementation details. The short, always
 ## Architecture
 
 ```text
-analyzer.go            Analyzer, the -sinks flag, ErrNoSSA
-plugin/                the golangci-lint module plugin: the settings in place of the flags
+analyzer.go            Analyzer, with the -sinks flag; New, which takes a Config instead; ErrNoSSA
+plugin/                the golangci-lint module plugin: the settings, read into a Config for New
 cmd/errlogreturn/      singlechecker entry point
 internal/              the engine: one flat package, one namespace per file
   run.go               Run: summarize every function, export facts, check
