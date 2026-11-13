@@ -19,6 +19,7 @@
 // Being sound here costs completeness. When edge A ran, logPhi logged shared,
 // and returning shared hands it over again, but the analysis cannot know that
 // edge A ran. MissedWhenEdgeWasShared witnesses the report it gives up.
+fsl 5
 spec PhiIdentity {
   enum Edge { Shared, Fresh }
   enum Ret { RetShared, RetPhi }
