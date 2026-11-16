@@ -18,6 +18,7 @@
 //
 // ASSUME-1: MAX bounds the number of attempts. It is a modeling bound, not a
 // claim about loops.
+fsl 5
 spec LoopExitNaive {
   const MAX = 3
   type Attempt = 1..4

@@ -16,6 +16,7 @@
 //
 // ASSUME-1: MAXGEN bounds the number of iterations. It is a modeling bound,
 // not a claim about loops.
+fsl 5
 spec FreshValueNaive {
   const MAXGEN = 3
   type Gen = 0..MAXGEN

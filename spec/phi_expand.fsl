@@ -25,6 +25,7 @@
 // The analysis starts its path walk at the log call. A merge the walk enters
 // after the log is resolved to the edge it came in on. A merge before the log
 // is not resolved. This rule expands it to all of its edges instead.
+fsl 5
 spec PhiExpand {
   enum Edge { Shared, Fresh }
   enum Ret { RetShared, RetPhi }

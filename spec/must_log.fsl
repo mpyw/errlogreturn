@@ -18,6 +18,7 @@
 // A recursive call reads the summary still being built, which says nothing
 // yet. That makes Recursive a helper the summary does not count, though it
 // logs. MissedWhenRecursive witnesses the report given up for that.
+fsl 5
 spec MustLog {
   enum Shape { Always, IfNonNil, IfOther, Recursive, Never }
 

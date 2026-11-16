@@ -17,7 +17,7 @@ set -o pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")" || exit 1
 
 if ! command -v fslc > /dev/null 2>&1; then
-  echo "fslc not found; skipping the specs. Install: https://github.com/ymm-oss/fsl" >&2
+  echo "fslc not found; skipping the specs. Install it with: mise install (mise.toml pins its version)" >&2
   exit 0
 fi
 

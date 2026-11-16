@@ -13,6 +13,7 @@
 //   Recursive   logs on the base case, and calls itself on the other path
 //   Never       does not log err
 //
+fsl 5
 spec MustLogMay {
   enum Shape { Always, IfNonNil, IfOther, Recursive, Never }
 

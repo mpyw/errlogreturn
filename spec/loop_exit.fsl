@@ -39,6 +39,7 @@
 // drops the exits, which only adds silence, and this spec does not need to
 // justify it. A loop with several tests keeps only the exit of the test that
 // ends it first, which is the exit this spec's head stands for.
+fsl 5
 spec LoopExit {
   const MAX = 3
   type Attempt = 1..4
