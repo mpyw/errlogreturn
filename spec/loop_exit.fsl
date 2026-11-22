@@ -1,152 +1,160 @@
 // What the loop rule relies on.
 //
 // The path walk ignores branch conditions it cannot decide. After a log in a
-// loop, it may take the loop's exit and reach the return with the value it
-// logged. That exit may be one the program can never take right after a log:
+// loop, it may take the loop's exit. It then reaches the return with the value
+// it logged. That exit may be one the program never takes right after a log:
 //
-//   for attempt := 1; attempt <= MAX; attempt++ {   head: exit when attempt > MAX
-//     err = do()                                    enter: a new error
-//     if err == nil { return nil }                  succeed
-//     if attempt == MAX { break }                   the guard
-//     log(err)                                      log, then go round
+//   for attempt := 1; attempt <= MAX_ATTEMPTS; attempt++ {   exitLoop when this fails
+//     err = do()                                             enterBody: a new error
+//     if err == nil { return nil }                           succeed
+//     if attempt == MAX_ATTEMPTS { break }                   the guard: giveUp
+//     log(err)                                               logThenRetry
 //   }
 //   return err
 //
-// The rule reads the loop's tests of the counter for its value on the last
-// iteration, MAX here, and evaluates the guard that leads to the log there.
-// When the guard fails at MAX, the walk does not take the loop's exit. It
-// still goes round the loop, where the next iteration defines a new error.
+// The rule reads the loop's tests of the counter. They give its value on the
+// last iteration, MAX_ATTEMPTS here. The rule evaluates the guard that leads to
+// the log at that value. When the guard fails there, the walk does not take
+// the loop's exit. It still goes round the loop, where the next iteration
+// defines a new error.
 //
-// The spec runs the program with any guard: allowed is the set of attempts on
-// which the guard lets the log run, built up before the loop starts. silenced
-// is the rule's judgement, that MAX is not in it. exitAfterLog records that the
-// loop exited right after a log, with nothing redefined in between. That is
-// the run the walk's report stands for.
+// The spec runs the program with any guard. guardPassesOn is the set of
+// attempts on which the guard lets the log run. It is built before the loop
+// starts. The rule's judgement is ruleIsSilent: MAX_ATTEMPTS is not in the
+// set. exitedRightAfterLog records that the loop exited right after a log, with
+// nothing redefined in between. That is the run the walk's report stands for.
 //
-// SilenceLosesNothing is the lemma: whenever the rule is silent, that run never
-// happens. ReportedWhenLastLogs shows that the run exists when the guard lets
-// the last attempt log, so the report the rule leaves standing is genuine.
+// SilenceLosesNothing is the lemma: whenever the rule is silent, that run
+// never happens. ReportedWhenLastLogs shows that the run exists when the guard
+// lets the last attempt log. So the report the rule leaves standing is
+// genuine.
 //
-// Staying silent never produces a false report, so the rule cannot break
+// Staying silent never produces a false report. So the rule cannot break
 // NeverReportsAnUnloggedError in loop_exit_naive.fsl. What needs proving is
 // that the silence is right.
 //
-// ASSUME-1: MAX bounds the number of attempts. It is a modeling bound, not a
-// claim about loops.
+// ASSUME-1: MAX_ATTEMPTS bounds the number of attempts. It is a modeling
+// bound, not a claim about loops.
 // ASSUME-2: the rule evaluates the guard at the counter's last value
-// correctly. checkCounter, checkLastOf and checkAt read only a counter
-// stepping by 1 compared with one bound. A test or a guard they cannot read
-// drops the exits, which only adds silence, and this spec does not need to
-// justify it. A loop with several tests keeps only the exit of the test that
-// ends it first, which is the exit this spec's head stands for.
+// correctly. The functions loop.counterOf, loop.LastOf and loop.at read only
+// a counter that steps by 1 or -1 and is compared with one bound. A test or a
+// guard they cannot read drops the exits. That only adds silence, so this
+// spec does not need to justify it. A loop with several tests keeps only the
+// exit of the test that ends it first. That is the exit this spec's head
+// stands for.
+// Two cases fall outside ASSUME-2, and this spec does not cover them. A guard
+// that compares the counter with a constant against a last value over a bound
+// is open, as i > 0 is against n-1. Then loop.at keeps the exits. A counter
+// that is not a φ-node, such as one a closure captures, is not found. Then
+// every exit stays.
 fsl 5
 spec LoopExit {
-  const MAX = 3
-  type Attempt = 1..MAX + 1
-  enum Pc { Start, Head, Body, Returned }
+  const MAX_ATTEMPTS = 3
+  type Attempt = 1..MAX_ATTEMPTS + 1
+  enum Location { Start, Head, Body, Returned }
 
   state {
-    allowed: Set<Attempt>,
-    pc: Pc,
+    guardPassesOn: Set<Attempt>,
+    location: Location,
     attempt: Attempt,
     justLogged: Bool,
-    exitAfterLog: Bool
+    exitedRightAfterLog: Bool
   }
 
   init {
-    allowed = Set {}
-    pc = Start
+    guardPassesOn = Set {}
+    location = Start
     attempt = 1
     justLogged = false
-    exitAfterLog = false
+    exitedRightAfterLog = false
   }
 
-  def guardPassesOnLastAttempt() = allowed.contains(MAX)
+  def guardPassesOnLastAttempt() = guardPassesOn.contains(MAX_ATTEMPTS)
   def ruleIsSilent() = not guardPassesOnLastAttempt()
 
-  action allow(a: Attempt) {
-    requires pc == Start
-    requires a <= MAX
-    allowed = allowed.add(a)
+  action letGuardPass(passingAttempt: Attempt) {
+    requires location == Start
+    requires passingAttempt <= MAX_ATTEMPTS
+    guardPassesOn = guardPassesOn.add(passingAttempt)
   }
 
-  action start() {
-    requires pc == Start
-    pc = Head
+  action startLoop() {
+    requires location == Start
+    location = Head
   }
 
-  action enter() {
-    requires pc == Head
-    requires attempt <= MAX
-    pc = Body
+  action enterBody() {
+    requires location == Head
+    requires attempt <= MAX_ATTEMPTS
+    location = Body
     justLogged = false
   }
 
   // The loop condition fails, and the function returns what err holds.
-  action exit() {
-    requires pc == Head
-    requires attempt > MAX
-    pc = Returned
-    exitAfterLog = justLogged
+  action exitLoop() {
+    requires location == Head
+    requires attempt > MAX_ATTEMPTS
+    location = Returned
+    exitedRightAfterLog = justLogged
   }
 
   action succeed() {
-    requires pc == Body
-    pc = Returned
+    requires location == Body
+    location = Returned
   }
 
-  // The guard fails on the last attempt, which breaks out and returns its
-  // error without logging it.
+  // The guard fails on the last attempt. That attempt breaks out and returns
+  // its error without logging it.
   action giveUp() {
-    requires pc == Body
-    requires attempt == MAX
+    requires location == Body
+    requires attempt == MAX_ATTEMPTS
     requires not guardPassesOnLastAttempt()
-    pc = Returned
+    location = Returned
   }
 
-  action log() {
-    requires pc == Body
-    requires allowed.contains(attempt)
+  action logThenRetry() {
+    requires location == Body
+    requires guardPassesOn.contains(attempt)
     justLogged = true
     attempt = attempt + 1
-    pc = Head
+    location = Head
   }
 
-  action skip() {
-    requires pc == Body
-    requires not allowed.contains(attempt)
-    requires attempt < MAX
+  action skipLogThenRetry() {
+    requires location == Body
+    requires not guardPassesOn.contains(attempt)
+    requires attempt < MAX_ATTEMPTS
     attempt = attempt + 1
-    pc = Head
+    location = Head
   }
 
-  terminal { pc == Returned }
+  terminal { location == Returned }
 
-  invariant SilenceLosesNothing { ruleIsSilent() => not exitAfterLog }
+  invariant SilenceLosesNothing { ruleIsSilent() => not exitedRightAfterLog }
 
-  // What makes it inductive: the loop reaches its head past MAX only right
-  // after logging the last attempt.
+  // These make it inductive. The loop reaches its head past MAX_ATTEMPTS only
+  // right after it logs the last attempt.
   invariant PastMaxOnlyAfterLastLog {
-    (pc == Head and attempt > MAX)
+    (location == Head and attempt > MAX_ATTEMPTS)
     => (justLogged and guardPassesOnLastAttempt())
   }
-  invariant BodyInRange { pc == Body => attempt <= MAX }
-  invariant ExitOnlyOnReturn { exitAfterLog => pc == Returned }
+  invariant BodyInRange { location == Body => attempt <= MAX_ATTEMPTS }
+  invariant ExitOnlyOnReturn { exitedRightAfterLog => location == Returned }
   invariant StartsFresh {
-    pc == Start
+    location == Start
     => (attempt == 1
         and not justLogged
-        and not exitAfterLog)
+        and not exitedRightAfterLog)
   }
 
   reachable ReportedWhenLastLogs {
     guardPassesOnLastAttempt()
-    and exitAfterLog
+    and exitedRightAfterLog
   }
   reachable SilentRetriesThenGivesUp {
     ruleIsSilent()
-    and allowed.size() > 0
-    and pc == Returned
-    and attempt == MAX
+    and guardPassesOn.size() > 0
+    and location == Returned
+    and attempt == MAX_ATTEMPTS
   }
 }

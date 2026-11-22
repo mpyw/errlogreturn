@@ -1,8 +1,8 @@
-// FAILS ON PURPOSE. This is the rule fresh_value.fsl replaced, and the
-// counterexample is the reason it was replaced.
+// FAILS ON PURPOSE. This is the rule that fresh_value.fsl replaced. The
+// counterexample is the reason for the change.
 //
 // The rule compares SSA values and nothing else. A call in a loop body is one
-// SSA value in every iteration, so an error logged in one iteration matches a
+// SSA value in every iteration. So an error logged in one iteration matches a
 // new error returned in the next. woodpecker's cli/pipeline/purge.go was
 // reported for exactly this before the rule changed.
 //
@@ -14,56 +14,59 @@
 //     return err
 //   }
 //
-// ASSUME-1: MAXGEN bounds the number of iterations. It is a modeling bound,
-// not a claim about loops.
+// ASSUME-1: MAX_ITERATIONS bounds the number of iterations. It is a modeling
+// bound, not a claim about loops.
 fsl 5
 spec FreshValueNaive {
-  const MAXGEN = 3
-  type Gen = 0..MAXGEN
-  enum Pc { Define, Body, Returned }
+  const MAX_ITERATIONS = 3
+  type ErrorNumber = 0..MAX_ITERATIONS
+  enum Location { Define, Body, Returned }
 
   state {
-    pc: Pc,
-    gen: Gen,
-    loggedGens: Set<Gen>,
+    location: Location,
+    currentError: ErrorNumber,
+    loggedErrors: Set<ErrorNumber>,
     reported: Bool,
-    doubled: Bool
+    returnedWasLogged: Bool
   }
 
   init {
-    pc = Define
-    gen = 0
-    loggedGens = Set {}
+    location = Define
+    currentError = 0
+    loggedErrors = Set {}
     reported = false
-    doubled = false
+    returnedWasLogged = false
   }
 
-  action define() {
-    requires pc == Define
-    requires gen < MAXGEN
-    pc = Body
-    gen = gen + 1
+  action defineError() {
+    requires location == Define
+    requires currentError < MAX_ITERATIONS
+    location = Body
+    currentError = currentError + 1
   }
 
-  action log() {
-    requires pc == Body
-    loggedGens = loggedGens.add(gen)
+  action logError() {
+    requires location == Body
+    loggedErrors = loggedErrors.add(currentError)
   }
 
-  action loop() {
-    requires pc == Body
-    pc = Define
+  action loopBack() {
+    requires location == Body
+    location = Define
   }
 
   // Any earlier log of the same SSA value counts.
-  action ret() {
-    requires pc == Body
-    pc = Returned
-    reported = loggedGens.size() > 0
-    doubled = loggedGens.contains(gen)
+  action returnError() {
+    requires location == Body
+    location = Returned
+    reported = loggedErrors.size() > 0
+    returnedWasLogged = loggedErrors.contains(currentError)
   }
 
-  terminal { pc == Returned or (pc == Define and gen == MAXGEN) }
+  terminal {
+    location == Returned
+    or (location == Define and currentError == MAX_ITERATIONS)
+  }
 
-  invariant NeverReportsAFreshValue { reported => doubled }
+  invariant NeverReportsAFreshValue { reported => returnedWasLogged }
 }

@@ -1,13 +1,13 @@
 // A helper counts as logging its argument only when every path that returns
 // logs it. A path on which the argument is known to be nil counts as logging
-// it, since a nil error has nothing to log.
+// it. A nil error has nothing to log.
 //
 // A caller that passes an error to such a helper and then returns it is
-// reported. The report is only right if the helper really logged that error,
-// so the property checked here is: whenever the summary says "logs", and the
+// reported. The report is only right if the helper really logged that error.
+// So this spec checks one property. Whenever the summary says "logs" and the
 // error is a real one, the helper logged it.
 //
-// The helper's shape is one of:
+// The helper has one of these shapes:
 //
 //   Always      log(err)
 //   IfNonNil    if err != nil { log(err) }, or: if err == nil { return }; log(err)
@@ -15,72 +15,76 @@
 //   Recursive   logs on the base case, and calls itself on the other path
 //   Never       does not log err
 //
-// A recursive call reads the summary still being built, which says nothing
-// yet. That makes Recursive a helper the summary does not count, though it
-// logs. MissedWhenRecursive witnesses the report given up for that.
+// A recursive call reads the summary that is still being built. That summary
+// says nothing yet. So the summary does not count Recursive, though it logs.
+// MissedWhenRecursive witnesses the report given up for that.
 fsl 5
 spec MustLog {
   enum Shape { Always, IfNonNil, IfOther, Recursive, Never }
 
   state {
-    ran: Bool,
+    helperRan: Bool,
     shape: Shape,
-    nonNil: Bool,
-    cond: Bool,
-    logged: Bool,
-    summaryLogs: Bool
+    errorIsNonNil: Bool,
+    otherConditionHolds: Bool,
+    helperLogged: Bool,
+    summarySaysLogs: Bool
   }
 
   init {
-    ran = false
+    helperRan = false
     shape = Never
-    nonNil = false
-    cond = false
-    logged = false
-    summaryLogs = false
+    errorIsNonNil = false
+    otherConditionHolds = false
+    helperLogged = false
+    summarySaysLogs = false
   }
 
-  // What running the helper once logs.
-  def logs(s: Shape, nn: Bool, c: Bool) =
-    s == Always
-    or s == Recursive
-    or (s == IfNonNil and nn)
-    or (s == IfOther and c)
+  // What one run of the helper logs.
+  def helperLogs(helperShape: Shape, nonNil: Bool, conditionHolds: Bool) =
+    helperShape == Always
+    or helperShape == Recursive
+    or (helperShape == IfNonNil and nonNil)
+    or (helperShape == IfOther and conditionHolds)
 
   // What the must-analysis concludes from the helper's body.
-  def summarized(s: Shape) = s == Always or s == IfNonNil
+  def summaryCountsAsLogging(helperShape: Shape) =
+    helperShape == Always
+    or helperShape == IfNonNil
 
-  action run(s: Shape, nn: Bool, c: Bool) {
-    requires not ran
-    ran = true
-    shape = s
-    nonNil = nn
-    cond = c
-    logged = logs(s, nn, c)
-    summaryLogs = summarized(s)
+  action runHelper(helperShape: Shape, nonNil: Bool, conditionHolds: Bool) {
+    requires not helperRan
+    helperRan = true
+    shape = helperShape
+    errorIsNonNil = nonNil
+    otherConditionHolds = conditionHolds
+    helperLogged = helperLogs(helperShape, nonNil, conditionHolds)
+    summarySaysLogs = summaryCountsAsLogging(helperShape)
   }
 
-  terminal { ran }
+  terminal { helperRan }
 
-  // The property the caller's report rests on.
-  invariant ReportMeansLogged { ran and summaryLogs and nonNil => logged }
+  // The caller's report rests on this property.
+  invariant ReportMeansLogged {
+    helperRan and summarySaysLogs and errorIsNonNil => helperLogged
+  }
 
   reachable CountsANilCheck {
-    ran
+    helperRan
     and shape == IfNonNil
-    and summaryLogs
+    and summarySaysLogs
   }
   reachable IgnoresOtherConditions {
-    ran
+    helperRan
     and shape == IfOther
-    and cond
-    and logged
-    and not summaryLogs
+    and otherConditionHolds
+    and helperLogged
+    and not summarySaysLogs
   }
   reachable MissedWhenRecursive {
-    ran
+    helperRan
     and shape == Recursive
-    and logged
-    and not summaryLogs
+    and helperLogged
+    and not summarySaysLogs
   }
 }

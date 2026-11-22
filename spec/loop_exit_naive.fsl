@@ -1,79 +1,79 @@
-// FAILS ON PURPOSE. This is the rule loop_exit.fsl replaced, and the
-// counterexample is the reason it was replaced.
+// FAILS ON PURPOSE. This is the rule that loop_exit.fsl replaced. The
+// counterexample is the reason for the change.
 //
-// The walk follows every edge after the log, including the loop condition's
-// exit, whether the condition is tested at the head or at the bottom of the
-// body. In the retry loop of loop_exit.fsl, that exit cannot run after the log,
-// but the walk reaches return err through it without redefining err. So a log
-// on any retry is reported against the final return, which hands back the
-// last attempt's error: one that was never logged.
+// The walk follows every edge after the log. That includes the exit of the
+// loop condition, tested at the head or at the bottom of the body. In the
+// retry loop of loop_exit.fsl, that exit cannot run after the log. The walk
+// still reaches return err through it without a new definition of err. So a
+// log on any retry is reported against the final return. That return hands
+// back the last attempt's error, which was never logged.
 //
-//   for attempt := 1; attempt <= MAX; attempt++ {
+//   for attempt := 1; attempt <= MAX_ATTEMPTS; attempt++ {
 //     err = do()
 //     if err == nil { return nil }
-//     if attempt == MAX { break }
+//     if attempt == MAX_ATTEMPTS { break }
 //     log(err)
 //   }
 //   return err
 //
-// ASSUME-1: MAX bounds the number of attempts. It is a modeling bound, not a
-// claim about loops.
+// ASSUME-1: MAX_ATTEMPTS bounds the number of attempts. It is a modeling
+// bound, not a claim about loops.
 fsl 5
 spec LoopExitNaive {
-  const MAX = 3
-  type Attempt = 1..MAX + 1
-  type Gen = 0..MAX
-  enum Pc { Head, Body, Returned }
+  const MAX_ATTEMPTS = 3
+  type Attempt = 1..MAX_ATTEMPTS + 1
+  type ErrorNumber = 0..MAX_ATTEMPTS
+  enum Location { Head, Body, Returned }
 
   state {
-    pc: Pc,
+    location: Location,
     attempt: Attempt,
-    gen: Gen,
-    loggedGens: Set<Gen>,
+    currentError: ErrorNumber,
+    loggedErrors: Set<ErrorNumber>,
     reported: Bool,
-    doubled: Bool
+    returnedWasLogged: Bool
   }
 
   init {
-    pc = Head
+    location = Head
     attempt = 1
-    gen = 0
-    loggedGens = Set {}
+    currentError = 0
+    loggedErrors = Set {}
     reported = false
-    doubled = false
+    returnedWasLogged = false
   }
 
-  action enter() {
-    requires pc == Head
-    requires attempt <= MAX
-    requires gen < MAX
-    pc = Body
-    gen = gen + 1
+  action enterBody() {
+    requires location == Head
+    requires attempt <= MAX_ATTEMPTS
+    requires currentError < MAX_ATTEMPTS
+    location = Body
+    currentError = currentError + 1
   }
 
   action succeed() {
-    requires pc == Body
-    pc = Returned
+    requires location == Body
+    location = Returned
   }
 
-  // Any earlier log reaches this return through head's exit edge.
+  // Any earlier log reaches this return through the exit edge of the head.
   action giveUp() {
-    requires pc == Body
-    requires attempt == MAX
-    pc = Returned
-    reported = loggedGens.size() > 0
-    doubled = loggedGens.contains(gen)
+    requires location == Body
+    requires attempt == MAX_ATTEMPTS
+    location = Returned
+    reported = loggedErrors.size() > 0
+    returnedWasLogged = loggedErrors.contains(currentError)
   }
 
-  action retry() {
-    requires pc == Body
-    requires attempt < MAX
-    loggedGens = loggedGens.add(gen)
+  action logThenRetry() {
+    requires location == Body
+    requires attempt < MAX_ATTEMPTS
+    loggedErrors = loggedErrors.add(currentError)
     attempt = attempt + 1
-    pc = Head
+    location = Head
   }
 
-  terminal { pc == Returned }
+  terminal { location == Returned }
 
-  invariant NeverReportsAnUnloggedError { reported => doubled }
+  invariant NeverReportsAnUnloggedError { reported => returnedWasLogged }
 }
