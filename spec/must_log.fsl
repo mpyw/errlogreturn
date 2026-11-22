@@ -13,14 +13,20 @@
 //   IfNonNil    if err != nil { log(err) }, or: if err == nil { return }; log(err)
 //   IfOther     if cond { log(err) }, for any condition but a nil check
 //   Recursive   logs on the base case, and calls itself on the other path
+//   Merged      e := err; if cond { e = other }; log(e)
 //   Never       does not log err
 //
 // A recursive call reads the summary that is still being built. That summary
 // says nothing yet. So the summary does not count Recursive, though it logs.
 // MissedWhenRecursive witnesses the report given up for that.
+//
+// Merged logs err only when cond is false. The summary counts only what the
+// logged value carries on every edge of a merge. So it does not count Merged.
+// A summary that counted any edge said Merged logs err. Then the caller was
+// reported when cond was true.
 fsl 5
 spec MustLog {
-  enum Shape { Always, IfNonNil, IfOther, Recursive, Never }
+  enum Shape { Always, IfNonNil, IfOther, Recursive, Merged, Never }
 
   state {
     helperRan: Bool,
@@ -46,6 +52,7 @@ spec MustLog {
     or helperShape == Recursive
     or (helperShape == IfNonNil and nonNil)
     or (helperShape == IfOther and conditionHolds)
+    or (helperShape == Merged and not conditionHolds)
 
   // What the must-analysis concludes from the helper's body.
   def summaryCountsAsLogging(helperShape: Shape) =
@@ -84,6 +91,14 @@ spec MustLog {
   reachable MissedWhenRecursive {
     helperRan
     and shape == Recursive
+    and helperLogged
+    and not summarySaysLogs
+  }
+
+  // The merge took the err edge and logged it, but the summary gives it up.
+  reachable MissedWhenMerged {
+    helperRan
+    and shape == Merged
     and helperLogged
     and not summarySaysLogs
   }

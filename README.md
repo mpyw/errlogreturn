@@ -149,6 +149,8 @@ A function that logs its argument counts as a log call. This holds for a functio
 | Logs its argument | `slog.Error("failed", "err", err)` | Reported |
 | Logs it unless it is `nil` | `if err != nil { slog.Error(...) }` | Reported |
 | Logs it only under another condition | `if !errors.Is(err, ErrCanceled) { slog.Error(...) }` | Not reported |
+| Logs it or another error | `e := err; if internal { e = ErrPublic }; slog.Error("failed", "err", e)` | Not reported |
+| Logs it, wrapped or not | `e := err; if wrap { e = fmt.Errorf("op: %w", err) }; slog.Error("failed", "err", e)` | Reported |
 | Logs it and returns it | `slog.Error(...); return err` | The helper is reported. A caller that returns its result is not |
 
 <details>

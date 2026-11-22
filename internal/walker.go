@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/token"
 	"go/types"
+	"maps"
 	"slices"
 
 	"golang.org/x/tools/go/ssa"
@@ -44,7 +45,9 @@ type walkerBook struct {
 // identity: it may be any of its edges, and guessing which would match an error
 // that was never logged. Collecting inputs, it records the parameters and free
 // variables reached, which is what a summary is built from; there every edge
-// of a φ-node counts, since a result carries whatever it may be.
+// of a φ-node counts, since a result carries whatever it may be. Collecting
+// the inputs a logged value must carry, a φ-node, or memory that one of
+// several writes may have filled, counts only for what every edge carries.
 type walker struct {
 	c   *checker
 	idx *store.Index
@@ -62,7 +65,34 @@ type walker struct {
 	// fields holds the inputs reached only through memory below them, by
 	// the paths read there.
 	fields map[ssa.Value][][]int
+	// must keeps only what every edge of a merge carries. It is nil in
+	// the other modes.
+	must *walkerMust
+	// top reports that the trace reached a merge still being met. What it
+	// carries is then taken to be everything, the identity of the
+	// intersection, so that a loop that wraps err each pass still carries
+	// it.
+	top bool
+	// hits holds the merges still being met that the trace reached.
+	hits map[walkerSeen]bool
 }
+
+// walkerMust is the state that the traces of one must-analysis share.
+type walkerMust struct {
+	// open holds the merges being met, on the way down.
+	open map[walkerSeen]bool
+	// done holds the inputs a merge must carry, once it is known without
+	// assuming anything about a merge still open.
+	done map[walkerSeen]map[ssa.Value]bool
+	// steps counts the edges met. Past walkerMaxMeets the trace gives up,
+	// and the logged value carries nothing.
+	steps int
+}
+
+// walkerMaxMeets bounds the edges one must-analysis meets. A result that
+// assumes a merge still open is not kept, so loops whose merges read each
+// other are met again from each, which grows exponentially with them.
+const walkerMaxMeets = 4096
 
 // walkerSeen keys a visit. The contents of memory depend on where they are
 // read, so a read is keyed by the reading instruction and the path too.
@@ -111,11 +141,81 @@ func (c *checker) walkerInputs(fn *ssa.Function, vs []ssa.Value, at ssa.Instruct
 	return w.inputs, w.fields
 }
 
+// walkerMustInputs traces vs, as read by instruction at in fn, and returns the
+// inputs of fn that they carry on every path. A φ-node, or memory that one of
+// several writes may have filled, carries an input only when each edge or
+// write does. Memory that a call or the zero value may have filled carries
+// nothing.
+//
+//declscope:shared
+func (c *checker) walkerMustInputs(fn *ssa.Function, vs []ssa.Value, at ssa.Instruction) map[ssa.Value]bool {
+	w := c.newWalker(fn, nil, nil, false)
+	w.must = &walkerMust{open: make(map[walkerSeen]bool), done: make(map[walkerSeen]map[ssa.Value]bool)}
+	w.trace(vs, at)
+	if w.must.steps > walkerMaxMeets {
+		return nil
+	}
+	return w.inputs
+}
+
+// meet adds the inputs that every one of alts carries. key names the merge,
+// so that a trace that comes back to it, round a loop, is not followed again.
+func (w *walker) meet(key walkerSeen, alts []func(*walker)) {
+	m := w.must
+	if m.open[key] {
+		w.top = true
+		w.hits[key] = true
+		return
+	}
+	if got, ok := m.done[key]; ok {
+		maps.Copy(w.inputs, got)
+		return
+	}
+	m.open[key] = true
+	var common map[ssa.Value]bool
+	hits := make(map[walkerSeen]bool)
+	for _, alt := range alts {
+		if m.steps++; m.steps > walkerMaxMeets {
+			break
+		}
+		x := w.c.newWalkerOn(w.idx, nil, nil, false)
+		x.must = m
+		alt(x)
+		maps.Copy(hits, x.hits)
+		if x.top {
+			continue
+		}
+		if common == nil {
+			common = x.inputs
+			continue
+		}
+		maps.DeleteFunc(common, func(in ssa.Value, _ bool) bool { return !x.inputs[in] })
+	}
+	delete(m.open, key)
+	delete(hits, key)
+	maps.Copy(w.hits, hits)
+	if common == nil {
+		// Every edge comes back to a merge still open.
+		w.top = true
+		return
+	}
+	if len(hits) == 0 {
+		m.done[key] = common
+	}
+	maps.Copy(w.inputs, common)
+}
+
 // newWalker starts a trace in fn. phis and leaf may be nil.
 func (c *checker) newWalker(fn *ssa.Function, phis map[*ssa.Phi]ssa.Value, leaf ssa.Value, expand bool) *walker {
+	return c.newWalkerOn(c.walkerIndex(fn), phis, leaf, expand)
+}
+
+// newWalkerOn starts a trace over the writes idx holds.
+func (c *checker) newWalkerOn(idx *store.Index, phis map[*ssa.Phi]ssa.Value, leaf ssa.Value, expand bool) *walker {
 	return &walker{
 		c:      c,
-		idx:    c.walkerIndex(fn),
+		idx:    idx,
+		hits:   make(map[walkerSeen]bool),
 		phis:   phis,
 		leaf:   leaf,
 		expand: expand,
@@ -168,6 +268,12 @@ func (w *walker) visit(v ssa.Value, at ssa.Instruction, whole bool) {
 		switch e, ok := w.phis[v]; {
 		case ok:
 			w.value(e, v)
+		case w.must != nil:
+			alts := make([]func(*walker), len(v.Edges))
+			for i, e := range v.Edges {
+				alts[i] = func(x *walker) { x.value(e, v) }
+			}
+			w.meet(walkerSeen{v: v}, alts)
 		case w.expand:
 			for _, e := range v.Edges {
 				w.value(e, v)
@@ -433,26 +539,83 @@ func (w *walker) read(root ssa.Value, path []int, at ssa.Instruction) {
 	w.seen[k] = true
 
 	r := w.idx.Reaching(root, path, at, w.along)
+	if w.must != nil && w.readMust(k, r, root, path, at) {
+		return
+	}
 	if ld := walkerLoadOf(at); ld != nil && typeutil.IsError(ld.Type()) {
 		for _, cl := range r.Clobbers {
 			w.origin(root, path, cl)
 		}
 	}
 	for _, s := range r.Writes {
-		if len(s.Path) < len(path) {
-			w.project(s.Val, path[len(s.Path):], at)
-		} else {
-			w.value(s.Val, s.At)
-		}
+		w.written(s, path, at)
 	}
 	// A local variable nothing was stored in stands for its value, which
 	// is how errors.As fills its target.
 	if a, ok := root.(*ssa.Alloc); ok && (r.Unwritten || r.Zero) && len(r.Writes) == 0 && len(path) == 0 {
 		w.markVar(a)
 	}
-	if !r.Unwritten {
-		return
+	if r.Unwritten {
+		w.entry(root, path, at)
 	}
+}
+
+// readMust visits what memory holds on every path to the read, when more than
+// one thing may have filled all of it: a write of the whole, what it held on
+// entry, its zero value, or a call. A call or the zero value carries nothing,
+// so nothing is common then. It reports false, and visits nothing, when only
+// one thing may have.
+//
+// A write into a part of the memory is visited as it is in the other modes.
+// The elements a variadic call's array is filled with are parts of it.
+func (w *walker) readMust(k walkerSeen, r store.Reach, root ssa.Value, path []int, at ssa.Instruction) bool {
+	var whole, parts []store.Write
+	for _, s := range r.Writes {
+		if len(s.Path) <= len(path) {
+			whole = append(whole, s)
+		} else {
+			parts = append(parts, s)
+		}
+	}
+	n := len(whole) + len(r.Clobbers)
+	if r.Unwritten {
+		n++
+	}
+	if r.Zero {
+		n++
+	}
+	if n < 2 {
+		return false
+	}
+	for _, s := range parts {
+		w.written(s, path, at)
+	}
+	if r.Zero || len(r.Clobbers) > 0 {
+		return true
+	}
+	var alts []func(*walker)
+	for _, s := range whole {
+		alts = append(alts, func(x *walker) { x.written(s, path, at) })
+	}
+	if r.Unwritten {
+		alts = append(alts, func(x *walker) { x.entry(root, path, at) })
+	}
+	w.meet(k, alts)
+	return true
+}
+
+// written visits what write s put into the memory read at path by at.
+func (w *walker) written(s store.Write, path []int, at ssa.Instruction) {
+	if len(s.Path) < len(path) {
+		w.project(s.Val, path[len(s.Path):], at)
+	} else {
+		w.value(s.Val, s.At)
+	}
+}
+
+// entry visits what the memory at root and path held when the function was
+// entered, as read by at.
+func (w *walker) entry(root ssa.Value, path []int, at ssa.Instruction) {
 	switch x := root.(type) {
 	case *ssa.Alloc:
 	case *ssa.Global:
