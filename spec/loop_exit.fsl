@@ -42,21 +42,31 @@
 fsl 5
 spec LoopExit {
   const MAX = 3
-  type Attempt = 1..4
+  type Attempt = 1..MAX + 1
   enum Pc { Start, Head, Body, Returned }
 
   state {
-    allowed: Set<Attempt>, pc: Pc, attempt: Attempt,
-    justLogged: Bool, exitAfterLog: Bool
+    allowed: Set<Attempt>,
+    pc: Pc,
+    attempt: Attempt,
+    justLogged: Bool,
+    exitAfterLog: Bool
   }
 
   init {
-    allowed = Set {}  pc = Start  attempt = 1
-    justLogged = false  exitAfterLog = false
+    allowed = Set {}
+    pc = Start
+    attempt = 1
+    justLogged = false
+    exitAfterLog = false
   }
 
+  def guardPassesOnLastAttempt() = allowed.contains(MAX)
+  def ruleIsSilent() = not guardPassesOnLastAttempt()
+
   action allow(a: Attempt) {
-    requires pc == Start  requires a <= MAX
+    requires pc == Start
+    requires a <= MAX
     allowed = allowed.add(a)
   }
 
@@ -66,14 +76,18 @@ spec LoopExit {
   }
 
   action enter() {
-    requires pc == Head  requires attempt <= MAX
-    pc = Body  justLogged = false
+    requires pc == Head
+    requires attempt <= MAX
+    pc = Body
+    justLogged = false
   }
 
   // The loop condition fails, and the function returns what err holds.
   action exit() {
-    requires pc == Head  requires attempt > MAX
-    pc = Returned  exitAfterLog = justLogged
+    requires pc == Head
+    requires attempt > MAX
+    pc = Returned
+    exitAfterLog = justLogged
   }
 
   action succeed() {
@@ -84,31 +98,55 @@ spec LoopExit {
   // The guard fails on the last attempt, which breaks out and returns its
   // error without logging it.
   action giveUp() {
-    requires pc == Body  requires attempt == MAX  requires not allowed.contains(MAX)
+    requires pc == Body
+    requires attempt == MAX
+    requires not guardPassesOnLastAttempt()
     pc = Returned
   }
 
   action log() {
-    requires pc == Body  requires allowed.contains(attempt)
-    justLogged = true  attempt = attempt + 1  pc = Head
+    requires pc == Body
+    requires allowed.contains(attempt)
+    justLogged = true
+    attempt = attempt + 1
+    pc = Head
   }
 
   action skip() {
-    requires pc == Body  requires not allowed.contains(attempt)  requires attempt < MAX
-    attempt = attempt + 1  pc = Head
+    requires pc == Body
+    requires not allowed.contains(attempt)
+    requires attempt < MAX
+    attempt = attempt + 1
+    pc = Head
   }
 
   terminal { pc == Returned }
 
-  invariant SilenceLosesNothing { not allowed.contains(MAX) => not exitAfterLog }
+  invariant SilenceLosesNothing { ruleIsSilent() => not exitAfterLog }
 
   // What makes it inductive: the loop reaches its head past MAX only right
   // after logging the last attempt.
-  invariant PastMaxOnlyAfterLastLog { (pc == Head and attempt > MAX) => (justLogged and allowed.contains(MAX)) }
+  invariant PastMaxOnlyAfterLastLog {
+    (pc == Head and attempt > MAX)
+    => (justLogged and guardPassesOnLastAttempt())
+  }
   invariant BodyInRange { pc == Body => attempt <= MAX }
   invariant ExitOnlyOnReturn { exitAfterLog => pc == Returned }
-  invariant StartsFresh { pc == Start => (attempt == 1 and not justLogged and not exitAfterLog) }
+  invariant StartsFresh {
+    pc == Start
+    => (attempt == 1
+        and not justLogged
+        and not exitAfterLog)
+  }
 
-  reachable ReportedWhenLastLogs { allowed.contains(MAX) and exitAfterLog }
-  reachable SilentRetriesThenGivesUp { not allowed.contains(MAX) and allowed.size() > 0 and pc == Returned and attempt == MAX }
+  reachable ReportedWhenLastLogs {
+    guardPassesOnLastAttempt()
+    and exitAfterLog
+  }
+  reachable SilentRetriesThenGivesUp {
+    ruleIsSilent()
+    and allowed.size() > 0
+    and pc == Returned
+    and attempt == MAX
+  }
 }

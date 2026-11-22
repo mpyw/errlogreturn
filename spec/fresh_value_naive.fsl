@@ -23,20 +23,26 @@ spec FreshValueNaive {
   enum Pc { Define, Body, Returned }
 
   state {
-    pc: Pc, gen: Gen,
+    pc: Pc,
+    gen: Gen,
     loggedGens: Set<Gen>,
-    reported: Bool, doubled: Bool
+    reported: Bool,
+    doubled: Bool
   }
 
   init {
-    pc = Define  gen = 0
+    pc = Define
+    gen = 0
     loggedGens = Set {}
-    reported = false  doubled = false
+    reported = false
+    doubled = false
   }
 
   action define() {
-    requires pc == Define  requires gen < MAXGEN
-    pc = Body  gen = gen + 1
+    requires pc == Define
+    requires gen < MAXGEN
+    pc = Body
+    gen = gen + 1
   }
 
   action log() {

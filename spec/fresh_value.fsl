@@ -26,25 +26,35 @@ spec FreshValue {
   enum Pc { Define, Body, Returned }
 
   state {
-    pc: Pc, gen: Gen,
-    loggedGens: Set<Gen>, loggedSinceDefine: Bool,
-    reported: Bool, doubled: Bool
+    pc: Pc,
+    gen: Gen,
+    loggedGens: Set<Gen>,
+    loggedSinceDefine: Bool,
+    reported: Bool,
+    doubled: Bool
   }
 
   init {
-    pc = Define  gen = 0
-    loggedGens = Set {}  loggedSinceDefine = false
-    reported = false  doubled = false
+    pc = Define
+    gen = 0
+    loggedGens = Set {}
+    loggedSinceDefine = false
+    reported = false
+    doubled = false
   }
 
   action define() {
-    requires pc == Define  requires gen < MAXGEN
-    pc = Body  gen = gen + 1  loggedSinceDefine = false
+    requires pc == Define
+    requires gen < MAXGEN
+    pc = Body
+    gen = gen + 1
+    loggedSinceDefine = false
   }
 
   action log() {
     requires pc == Body
-    loggedGens = loggedGens.add(gen)  loggedSinceDefine = true
+    loggedGens = loggedGens.add(gen)
+    loggedSinceDefine = true
   }
 
   action loop() {
@@ -69,13 +79,17 @@ spec FreshValue {
   // What makes the two inductive: the flag says exactly whether the current
   // error was logged, and no error from the future was.
   invariant FlagTracksCurrentError { loggedSinceDefine == loggedGens.contains(gen) }
-  invariant NothingLoggedAhead { forall g: Gen { loggedGens.contains(g) => g <= gen } }
+  invariant NothingLoggedAhead {
+    forall g: Gen { loggedGens.contains(g) => g <= gen }
+  }
   invariant ReportsOnlyOnReturn { (reported or doubled) => pc == Returned }
 
   reachable Reported { reported }
   // The case the rule exists for: an error logged in one iteration, then a new
   // one returned in the next. It must stay silent.
   reachable SilentOnTheNextIteration {
-    pc == Returned and not reported and loggedGens.size() > 0
+    pc == Returned
+    and not reported
+    and loggedGens.size() > 0
   }
 }

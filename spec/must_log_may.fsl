@@ -18,25 +18,39 @@ spec MustLogMay {
   enum Shape { Always, IfNonNil, IfOther, Recursive, Never }
 
   state {
-    ran: Bool, shape: Shape, nonNil: Bool, cond: Bool,
-    logged: Bool, summaryLogs: Bool
+    ran: Bool,
+    shape: Shape,
+    nonNil: Bool,
+    cond: Bool,
+    logged: Bool,
+    summaryLogs: Bool
   }
 
   init {
-    ran = false  shape = Never  nonNil = false  cond = false
-    logged = false  summaryLogs = false
+    ran = false
+    shape = Never
+    nonNil = false
+    cond = false
+    logged = false
+    summaryLogs = false
   }
 
   // What running the helper once logs.
   def logs(s: Shape, nn: Bool, c: Bool) =
-    s == Always or s == Recursive or (s == IfNonNil and nn) or (s == IfOther and c)
+    s == Always
+    or s == Recursive
+    or (s == IfNonNil and nn)
+    or (s == IfOther and c)
 
   // What a may-analysis concludes: any path that logs is enough.
   def summarized(s: Shape) = s != Never
 
   action run(s: Shape, nn: Bool, c: Bool) {
     requires not ran
-    ran = true  shape = s  nonNil = nn  cond = c
+    ran = true
+    shape = s
+    nonNil = nn
+    cond = c
     logged = logs(s, nn, c)
     summaryLogs = summarized(s)
   }

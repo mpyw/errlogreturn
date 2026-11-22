@@ -26,16 +26,22 @@ spec PhiIdentity {
 
   state {
     taken: Option<Edge>,
-    loggedShared: Bool, sharedLoggedBeforeMerge: Bool, loggedPhi: Bool,
+    loggedShared: Bool,
+    sharedLoggedBeforeMerge: Bool,
+    loggedPhi: Bool,
     returned: Option<Ret>,
-    reported: Bool, doubled: Bool
+    reported: Bool,
+    doubled: Bool
   }
 
   init {
     taken = none
-    loggedShared = false  sharedLoggedBeforeMerge = false  loggedPhi = false
+    loggedShared = false
+    sharedLoggedBeforeMerge = false
+    loggedPhi = false
     returned = none
-    reported = false  doubled = false
+    reported = false
+    doubled = false
   }
 
   action logShared() {
@@ -45,12 +51,14 @@ spec PhiIdentity {
   }
 
   action merge(e: Edge) {
-    requires taken == none  requires returned == none
+    requires taken == none
+    requires returned == none
     taken = some(e)
   }
 
   action logPhi() {
-    requires taken != none  requires returned == none
+    requires taken != none
+    requires returned == none
     loggedPhi = true
   }
 
@@ -59,8 +67,10 @@ spec PhiIdentity {
 
   // The ground truth: the returned error is one that was logged.
   def returnsLogged(r: Ret) =
-    if r == RetShared then loggedShared or (loggedPhi and phiIsShared())
-    else (loggedShared and phiIsShared()) or loggedPhi
+    if r == RetShared then
+      loggedShared or (loggedPhi and phiIsShared())
+    else
+      (loggedShared and phiIsShared()) or loggedPhi
 
   // What the analysis reports, pairing each log with the return.
   //
@@ -70,11 +80,15 @@ spec PhiIdentity {
   //   log φ,       return φ        the same φ-node, by identity
   //   log φ,       return shared   never: which edge the φ-node took is unknown
   def reports(r: Ret) =
-    if r == RetShared then loggedShared
-    else (loggedShared and sharedLoggedBeforeMerge and phiIsShared()) or loggedPhi
+    if r == RetShared then
+      loggedShared
+    else
+      (loggedShared and sharedLoggedBeforeMerge and phiIsShared())
+      or loggedPhi
 
   action ret(r: Ret) {
-    requires taken != none  requires returned == none
+    requires taken != none
+    requires returned == none
     returned = some(r)
     reported = reports(r)
     doubled = returnsLogged(r)
@@ -86,16 +100,31 @@ spec PhiIdentity {
   invariant ReportsOnlyOnReturn { (reported or doubled) => returned != none }
   invariant SharedBeforeMergeWasLogged { sharedLoggedBeforeMerge => loggedShared }
 
-  reachable ReportedByIdentity { reported and loggedPhi and returned == some(RetPhi) }
+  // Only the φ-node was logged, and shared was returned.
+  def loggedOnlyPhiAndReturnedShared() =
+    loggedPhi
+    and not loggedShared
+    and returned == some(RetShared)
+
+  reachable ReportedByIdentity {
+    reported
+    and loggedPhi
+    and returned == some(RetPhi)
+  }
   reachable ReportedThroughAResolvedMerge {
-    reported and not loggedPhi and returned == some(RetPhi)
+    reported
+    and not loggedPhi
+    and returned == some(RetPhi)
   }
   reachable SilentWhenEdgeWasFresh {
-    loggedPhi and not loggedShared and taken == some(Fresh)
-    and returned == some(RetShared) and not reported
+    loggedOnlyPhiAndReturnedShared()
+    and taken == some(Fresh)
+    and not reported
   }
   reachable MissedWhenEdgeWasShared {
-    loggedPhi and not loggedShared and taken == some(Shared)
-    and returned == some(RetShared) and doubled and not reported
+    loggedOnlyPhiAndReturnedShared()
+    and taken == some(Shared)
+    and doubled
+    and not reported
   }
 }

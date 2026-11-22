@@ -23,25 +23,39 @@ spec MustLog {
   enum Shape { Always, IfNonNil, IfOther, Recursive, Never }
 
   state {
-    ran: Bool, shape: Shape, nonNil: Bool, cond: Bool,
-    logged: Bool, summaryLogs: Bool
+    ran: Bool,
+    shape: Shape,
+    nonNil: Bool,
+    cond: Bool,
+    logged: Bool,
+    summaryLogs: Bool
   }
 
   init {
-    ran = false  shape = Never  nonNil = false  cond = false
-    logged = false  summaryLogs = false
+    ran = false
+    shape = Never
+    nonNil = false
+    cond = false
+    logged = false
+    summaryLogs = false
   }
 
   // What running the helper once logs.
   def logs(s: Shape, nn: Bool, c: Bool) =
-    s == Always or s == Recursive or (s == IfNonNil and nn) or (s == IfOther and c)
+    s == Always
+    or s == Recursive
+    or (s == IfNonNil and nn)
+    or (s == IfOther and c)
 
   // What the must-analysis concludes from the helper's body.
   def summarized(s: Shape) = s == Always or s == IfNonNil
 
   action run(s: Shape, nn: Bool, c: Bool) {
     requires not ran
-    ran = true  shape = s  nonNil = nn  cond = c
+    ran = true
+    shape = s
+    nonNil = nn
+    cond = c
     logged = logs(s, nn, c)
     summaryLogs = summarized(s)
   }
@@ -51,7 +65,22 @@ spec MustLog {
   // The property the caller's report rests on.
   invariant ReportMeansLogged { ran and summaryLogs and nonNil => logged }
 
-  reachable CountsANilCheck { ran and shape == IfNonNil and summaryLogs }
-  reachable IgnoresOtherConditions { ran and shape == IfOther and cond and logged and not summaryLogs }
-  reachable MissedWhenRecursive { ran and shape == Recursive and logged and not summaryLogs }
+  reachable CountsANilCheck {
+    ran
+    and shape == IfNonNil
+    and summaryLogs
+  }
+  reachable IgnoresOtherConditions {
+    ran
+    and shape == IfOther
+    and cond
+    and logged
+    and not summaryLogs
+  }
+  reachable MissedWhenRecursive {
+    ran
+    and shape == Recursive
+    and logged
+    and not summaryLogs
+  }
 }

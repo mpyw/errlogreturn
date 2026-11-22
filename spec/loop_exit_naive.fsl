@@ -21,25 +21,34 @@
 fsl 5
 spec LoopExitNaive {
   const MAX = 3
-  type Attempt = 1..4
-  type Gen = 0..3
+  type Attempt = 1..MAX + 1
+  type Gen = 0..MAX
   enum Pc { Head, Body, Returned }
 
   state {
-    pc: Pc, attempt: Attempt, gen: Gen,
+    pc: Pc,
+    attempt: Attempt,
+    gen: Gen,
     loggedGens: Set<Gen>,
-    reported: Bool, doubled: Bool
+    reported: Bool,
+    doubled: Bool
   }
 
   init {
-    pc = Head  attempt = 1  gen = 0
+    pc = Head
+    attempt = 1
+    gen = 0
     loggedGens = Set {}
-    reported = false  doubled = false
+    reported = false
+    doubled = false
   }
 
   action enter() {
-    requires pc == Head  requires attempt <= MAX  requires gen < 3
-    pc = Body  gen = gen + 1
+    requires pc == Head
+    requires attempt <= MAX
+    requires gen < MAX
+    pc = Body
+    gen = gen + 1
   }
 
   action succeed() {
@@ -49,14 +58,16 @@ spec LoopExitNaive {
 
   // Any earlier log reaches this return through head's exit edge.
   action giveUp() {
-    requires pc == Body  requires attempt == MAX
+    requires pc == Body
+    requires attempt == MAX
     pc = Returned
     reported = loggedGens.size() > 0
     doubled = loggedGens.contains(gen)
   }
 
   action retry() {
-    requires pc == Body  requires attempt < MAX
+    requires pc == Body
+    requires attempt < MAX
     loggedGens = loggedGens.add(gen)
     attempt = attempt + 1
     pc = Head

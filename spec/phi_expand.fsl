@@ -32,16 +32,22 @@ spec PhiExpand {
 
   state {
     taken: Option<Edge>,
-    loggedShared: Bool, sharedLoggedBeforeMerge: Bool, loggedPhi: Bool,
+    loggedShared: Bool,
+    sharedLoggedBeforeMerge: Bool,
+    loggedPhi: Bool,
     returned: Option<Ret>,
-    reported: Bool, doubled: Bool
+    reported: Bool,
+    doubled: Bool
   }
 
   init {
     taken = none
-    loggedShared = false  sharedLoggedBeforeMerge = false  loggedPhi = false
+    loggedShared = false
+    sharedLoggedBeforeMerge = false
+    loggedPhi = false
     returned = none
-    reported = false  doubled = false
+    reported = false
+    doubled = false
   }
 
   action logShared() {
@@ -51,12 +57,14 @@ spec PhiExpand {
   }
 
   action merge(e: Edge) {
-    requires taken == none  requires returned == none
+    requires taken == none
+    requires returned == none
     taken = some(e)
   }
 
   action logPhi() {
-    requires taken != none  requires returned == none
+    requires taken != none
+    requires returned == none
     loggedPhi = true
   }
 
@@ -65,8 +73,10 @@ spec PhiExpand {
 
   // The ground truth: the returned error is one that was logged.
   def returnsLogged(r: Ret) =
-    if r == RetShared then loggedShared or (loggedPhi and phiIsShared())
-    else (loggedShared and phiIsShared()) or loggedPhi
+    if r == RetShared then
+      loggedShared or (loggedPhi and phiIsShared())
+    else
+      (loggedShared and phiIsShared()) or loggedPhi
 
   // What the analysis reports, pairing each log with the return.
   //
@@ -76,11 +86,15 @@ spec PhiExpand {
   //   log φ,       return φ        the same φ-node, by identity
   //   log φ,       return shared   always: shared is one of the φ-node's edges
   def reports(r: Ret) =
-    if r == RetShared then loggedShared or loggedPhi
-    else (loggedShared and sharedLoggedBeforeMerge and phiIsShared()) or loggedPhi
+    if r == RetShared then
+      loggedShared or loggedPhi
+    else
+      (loggedShared and sharedLoggedBeforeMerge and phiIsShared())
+      or loggedPhi
 
   action ret(r: Ret) {
-    requires taken != none  requires returned == none
+    requires taken != none
+    requires returned == none
     returned = some(r)
     reported = reports(r)
     doubled = returnsLogged(r)
