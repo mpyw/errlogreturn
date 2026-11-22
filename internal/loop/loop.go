@@ -36,7 +36,10 @@ func Exits(b *ssa.BasicBlock) map[[2]*ssa.BasicBlock]bool {
 			}
 			// A loop with one test ends only by it, on whatever value. A
 			// log that no branch on the counter decides runs on that one.
-			if len(lc.tests) == 1 && !readsCounter(h, b, phi, lc, body) {
+			reads := func(c ssa.Value) bool {
+				return Uses(c, phi, make(map[ssa.Value]bool)) || otherCounter(h, phi, c, body)
+			}
+			if len(lc.tests) == 1 && !readsCounter(h, b, lc.isTest, reads) {
 				continue
 			}
 			for _, t := range lc.tests {
@@ -45,8 +48,113 @@ func Exits(b *ssa.BasicBlock) map[[2]*ssa.BasicBlock]bool {
 				}
 			}
 		}
+		// A counter a closure captures is kept in memory, where the rule
+		// cannot read its steps. Its exits are dropped as an unreadable
+		// counter's are, except the one test of a loop that no guard on the
+		// counter decides.
+		for _, cell := range cells(h, body) {
+			reads := func(c ssa.Value) bool {
+				return loads(c, cell) || otherCounter(h, nil, c, body)
+			}
+			isTest := make(map[*ssa.BasicBlock]bool)
+			var exits [][2]*ssa.BasicBlock
+			for _, p := range h.Parent().Blocks {
+				if cmp, exit, _, ok := exitOf(p, body); ok && loads(cmp, cell) {
+					isTest[p] = true
+					exits = append(exits, exit)
+				}
+			}
+			if len(exits) == 1 && !readsCounter(h, b, isTest, reads) {
+				continue
+			}
+			for _, e := range exits {
+				out[e] = true
+			}
+		}
 	}
 	return out
+}
+
+// cells lists the numeric locals the loop headed by h writes: where a
+// counter a closure captures is kept. Since Go 1.22 each iteration has its
+// own copy, and the head holds a φ-node of the copies. A local declared
+// before the loop is one cell, which the body stores into or hands to a
+// closure.
+func cells(h *ssa.BasicBlock, body map[*ssa.BasicBlock]bool) []ssa.Value {
+	numeric := func(v ssa.Value) bool {
+		pt, ok := v.Type().Underlying().(*types.Pointer)
+		if !ok {
+			return false
+		}
+		bt, ok := pt.Elem().Underlying().(*types.Basic)
+		return ok && bt.Info()&types.IsNumeric != 0
+	}
+	var out []ssa.Value
+	for _, in := range h.Instrs {
+		phi, ok := in.(*ssa.Phi)
+		if !ok {
+			break
+		}
+		copies := !slices.ContainsFunc(phi.Edges, func(e ssa.Value) bool {
+			_, isAlloc := e.(*ssa.Alloc)
+			return !isAlloc
+		})
+		if copies && numeric(phi) {
+			out = append(out, phi)
+		}
+	}
+	seen := make(map[ssa.Value]bool)
+	for _, p := range h.Parent().Blocks {
+		if !body[p] {
+			continue
+		}
+		for _, in := range p.Instrs {
+			var addrs []ssa.Value
+			switch x := in.(type) {
+			case *ssa.Store:
+				addrs = []ssa.Value{x.Addr}
+			case *ssa.MakeClosure:
+				addrs = x.Bindings
+			}
+			for _, a := range addrs {
+				if al, ok := a.(*ssa.Alloc); ok && !body[al.Block()] && numeric(al) && !seen[al] {
+					seen[al] = true
+					out = append(out, al)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// loads reports whether v is computed from a load of cell.
+func loads(v, cell ssa.Value) bool {
+	return reaches(v, func(x ssa.Value) bool {
+		u, ok := x.(*ssa.UnOp)
+		return ok && u.Op == token.MUL && u.X == cell
+	}, make(map[ssa.Value]bool))
+}
+
+// exitOf reads the block p as a test that may end the loop whose blocks
+// are body: a branch inside the loop on a comparison, with one edge out of
+// it. stay says whether the loop goes on when the comparison holds.
+func exitOf(p *ssa.BasicBlock, body map[*ssa.BasicBlock]bool) (cmp *ssa.BinOp, exit [2]*ssa.BasicBlock, stay, ok bool) {
+	if !body[p] {
+		return nil, exit, false, false
+	}
+	iff, ok := p.Instrs[len(p.Instrs)-1].(*ssa.If)
+	if !ok || p.Succs[0] == p.Succs[1] || body[p.Succs[0]] == body[p.Succs[1]] {
+		return nil, exit, false, false
+	}
+	if cmp, ok = iff.Cond.(*ssa.BinOp); !ok {
+		return nil, exit, false, false
+	}
+	stay = body[p.Succs[0]]
+	exit = [2]*ssa.BasicBlock{p, p.Succs[1]}
+	if !stay {
+		exit[1] = p.Succs[0]
+	}
+	return cmp, exit, stay, true
 }
 
 // body lists the blocks of the loop headed by h: those h dominates that
@@ -80,19 +188,19 @@ func body(h *ssa.BasicBlock) map[*ssa.BasicBlock]bool {
 }
 
 // readsCounter reports whether a branch inside the loop headed by h,
-// other than the loop's own tests, reads the counter phi or another counter
-// of the loop to decide the log block b.
-func readsCounter(h, b *ssa.BasicBlock, phi *ssa.Phi, lc counted, body map[*ssa.BasicBlock]bool) bool {
+// other than the loop's own tests isTest, reads a counter of the loop to
+// decide the log block b. reads says whether a condition reads one.
+func readsCounter(h, b *ssa.BasicBlock, isTest map[*ssa.BasicBlock]bool, reads func(ssa.Value) bool) bool {
 	for d := b; d != nil && d != h; d = d.Idom() {
 		if len(d.Preds) != 1 {
 			continue
 		}
 		p := d.Preds[0]
 		iff, ok := p.Instrs[len(p.Instrs)-1].(*ssa.If)
-		if !ok || lc.isTest[p] || !h.Dominates(p) || p.Succs[0] == p.Succs[1] {
+		if !ok || isTest[p] || !h.Dominates(p) || p.Succs[0] == p.Succs[1] {
 			continue
 		}
-		if Uses(iff.Cond, phi, make(map[ssa.Value]bool)) || otherCounter(h, phi, iff.Cond, body) {
+		if reads(iff.Cond) {
 			return true
 		}
 	}
@@ -166,7 +274,14 @@ func logsAt(h, b *ssa.BasicBlock, phi *ssa.Phi, lc counted, body map[*ssa.BasicB
 // Uses reports whether v is computed from phi, through arithmetic,
 // comparisons and conversions.
 func Uses(v ssa.Value, phi *ssa.Phi, seen map[ssa.Value]bool) bool {
-	if v == ssa.Value(phi) {
+	return reaches(v, func(x ssa.Value) bool { return x == ssa.Value(phi) }, seen)
+}
+
+// reaches reports whether v is computed from a value hit holds for,
+// through arithmetic, comparisons and conversions. It stops at a load or a
+// receive, which reads what memory or a channel holds at that point.
+func reaches(v ssa.Value, hit func(ssa.Value) bool, seen map[ssa.Value]bool) bool {
+	if hit(v) {
 		return true
 	}
 	if seen[v] || len(seen) > 64 {
@@ -175,16 +290,16 @@ func Uses(v ssa.Value, phi *ssa.Phi, seen map[ssa.Value]bool) bool {
 	seen[v] = true
 	switch x := v.(type) {
 	case *ssa.BinOp:
-		return Uses(x.X, phi, seen) || Uses(x.Y, phi, seen)
+		return reaches(x.X, hit, seen) || reaches(x.Y, hit, seen)
 	case *ssa.UnOp:
-		return x.Op != token.MUL && x.Op != token.ARROW && Uses(x.X, phi, seen)
+		return x.Op != token.MUL && x.Op != token.ARROW && reaches(x.X, hit, seen)
 	case *ssa.Convert:
-		return Uses(x.X, phi, seen)
+		return reaches(x.X, hit, seen)
 	case *ssa.ChangeType:
-		return Uses(x.X, phi, seen)
+		return reaches(x.X, hit, seen)
 	case *ssa.Phi:
 		// A counter changed in the body is a φ-node made from it.
-		return slices.ContainsFunc(x.Edges, func(e ssa.Value) bool { return Uses(e, phi, seen) })
+		return slices.ContainsFunc(x.Edges, func(e ssa.Value) bool { return reaches(e, hit, seen) })
 	}
 	return false
 }
@@ -269,26 +384,11 @@ func counterOf(h, b *ssa.BasicBlock, phi *ssa.Phi, body map[*ssa.BasicBlock]bool
 	}
 	lc := counted{isTest: make(map[*ssa.BasicBlock]bool), known: step != 0}
 	for _, p := range h.Parent().Blocks {
-		if !body[p] {
-			continue
-		}
-		iff, ok := p.Instrs[len(p.Instrs)-1].(*ssa.If)
-		if !ok || p.Succs[0] == p.Succs[1] {
-			continue
-		}
-		in0, in1 := body[p.Succs[0]], body[p.Succs[1]]
-		if in0 == in1 {
-			continue
-		}
-		cmp, ok := iff.Cond.(*ssa.BinOp)
+		cmp, exit, in0, ok := exitOf(p, body)
 		if !ok || (!Uses(cmp.X, phi, map[ssa.Value]bool{}) && !Uses(cmp.Y, phi, map[ssa.Value]bool{})) {
 			continue
 		}
-		exit := p.Succs[1]
-		if in1 {
-			exit = p.Succs[0]
-		}
-		t := exitTest{exit: [2]*ssa.BasicBlock{p, exit}}
+		t := exitTest{exit: exit}
 		if lc.known {
 			// A test in the log's own block comes after the log.
 			at, ok := LastOf(cmp, in0, phi, step, p == b || !p.Dominates(b))
