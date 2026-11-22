@@ -2293,3 +2293,131 @@ func retryClosureLogsLast(max int, wait func(func() int)) error {
 	}
 	return err
 }
+
+// ===== Round eight: a guard against a constant, with the bound handed in =====
+
+// The log runs on the first two attempts. For every n above 2 the last
+// attempt does not log, so the loop never ends right after a log.
+func logFirstTwo(n int) error {
+	var err error
+	for i := 0; i < n; i++ {
+		err = do()
+		if err == nil {
+			return nil
+		}
+		if i < 2 {
+			log.Println(err)
+		}
+	}
+	return err
+}
+
+func logFirstTwoLeq(n int) error {
+	var err error
+	for i := 0; i < n; i++ {
+		if err = do(); err == nil {
+			return nil
+		}
+		if i <= 1 {
+			slog.Warn("retrying", "err", err)
+		}
+	}
+	return err
+}
+
+func logOnlyFirst(n int) error {
+	var err error
+	for i := 0; i < n; i++ {
+		if err = do(); err == nil {
+			return nil
+		}
+		if i == 0 {
+			slog.Warn("first attempt failed", "err", err)
+		}
+	}
+	return err
+}
+
+// Counting down toward a bound: the first two attempts, 9 and 8, log.
+func logFirstTwoDown(lo int) error {
+	var err error
+	for i := 9; i > lo; i-- {
+		if err = do(); err == nil {
+			return nil
+		}
+		if i > 7 {
+			slog.Warn("retrying", "err", err)
+		}
+	}
+	return err
+}
+
+// The loop's bound is fixed and the guard's is handed in. Nothing says
+// whether n is above the last attempt.
+func logBelowGiven(n int) error {
+	var err error
+	for i := 0; i < 3; i++ {
+		if err = do(); err == nil {
+			return nil
+		}
+		if i < n {
+			slog.Warn("retrying", "err", err)
+		}
+	}
+	return err
+}
+
+// The controls: the last attempt logs for every n above 1.
+func logAfterFirstGeq(n int) error {
+	var err error
+	for i := 0; i < n; i++ {
+		if err = do(); err == nil {
+			return nil
+		}
+		if i >= 1 {
+			slog.Warn("attempt failed", "err", err) // want `error is logged here`
+		}
+	}
+	return err
+}
+
+func logAfterFirstNeq(n int) error {
+	var err error
+	for i := 0; i < n; i++ {
+		if err = do(); err == nil {
+			return nil
+		}
+		if i != 0 {
+			slog.Warn("attempt failed", "err", err) // want `error is logged here`
+		}
+	}
+	return err
+}
+
+// The first two attempts skip the log, and every later one runs it.
+func skipFirstTwo(n int) error {
+	var err error
+	for i := 0; i < n; i++ {
+		if err = do(); err == nil {
+			return nil
+		}
+		if i < 2 {
+			continue
+		}
+		slog.Warn("attempt failed", "err", err) // want `error is logged here`
+	}
+	return err
+}
+
+func logAfterFirstDown(lo int) error {
+	var err error
+	for i := 9; i > lo; i-- {
+		if err = do(); err == nil {
+			return nil
+		}
+		if i < 9 {
+			slog.Warn("attempt failed", "err", err) // want `error is logged here`
+		}
+	}
+	return err
+}

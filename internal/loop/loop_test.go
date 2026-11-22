@@ -117,6 +117,10 @@ func F(n int, m int) {
 		if 1 < 2 { g() }
 		if n > 3 { g() }
 		if i != n { g() }
+		if i < 2 { g() }
+		if 0 < i { g() }
+		if i == 0 { g() }
+		if i != 0 { g() }
 	}
 }`)
 	fn := sp.Func("F")
@@ -129,21 +133,42 @@ func F(n int, m int) {
 		}
 	}
 	n := fn.Params[0]
-	last := Lin{base: n, off: -1}
 	c := testConds(fn)[1:]
-	type want struct{ v, ok, open bool }
-	wants := []want{{true, true, false}, {true, true, false}, {false, false, true}, {false, false, false}, {false, false, false}, {true, true, false}}
-	for i, w := range wants {
-		v, ok, open := at(c[i], phi, last)
-		if v != w.v || ok != w.ok || open != w.open {
-			t.Errorf("At(%v) = %v, %v, %v, want %+v", c[i], v, ok, open, w)
+	type want struct{ v, ok bool }
+	// Against n-1, counting up: a guard against a constant is read for a
+	// large n.
+	up := []want{{true, true}, {true, true}, {true, true}, {false, false}, {false, false}, {true, true}, {false, true}, {true, true}, {false, true}, {true, true}}
+	// Counting down toward n, the last value falls as n does.
+	down := []want{{true, true}, {true, true}, {false, true}, {false, false}, {false, false}, {true, true}, {true, true}, {false, true}, {false, true}, {true, true}}
+	for _, run := range []struct {
+		step  int64
+		wants []want
+	}{{1, up}, {-1, down}} {
+		for i, w := range run.wants {
+			v, ok := at(c[i], phi, Lin{base: n, off: -1}, run.step)
+			if v != w.v || ok != w.ok {
+				t.Errorf("step %d: At(%v) = %v, %v, want %+v", run.step, c[i], v, ok, w)
+			}
 		}
 	}
-	if _, ok, _ := at(n, phi, last); ok {
+	// Against a constant last value, a guard over another bound is not read.
+	if _, ok := at(c[3], phi, Lin{off: 2}, 1); ok {
+		t.Error("At reads i < m against a constant last value")
+	}
+	if v, ok := at(c[6], phi, Lin{off: 2}, 1); v || !ok {
+		t.Errorf("At(i < 2) at 2 = %v, %v, want false, true", v, ok)
+	}
+	if _, ok := at(n, phi, Lin{base: n, off: -1}, 1); ok {
 		t.Error("At reads a value that is no comparison")
 	}
 	odd := &ssa.BinOp{Op: token.AND, X: phi, Y: n}
-	if _, ok, _ := at(odd, phi, last); ok {
+	if _, ok := at(odd, phi, Lin{base: n, off: -1}, 1); ok {
 		t.Error("At reads a bit mask")
+	}
+	if _, ok := farHolds(token.LSS, 0); ok {
+		t.Error("farHolds reads a counter that does not step")
+	}
+	if _, ok := farHolds(token.AND, 1); ok {
+		t.Error("farHolds reads a bit mask")
 	}
 }
