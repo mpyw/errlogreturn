@@ -41,12 +41,16 @@
 // guard they cannot read drops the exits. That only adds silence, so this
 // spec does not need to justify it. A counter kept in memory, such as one a
 // closure captures, is such a counter. A loop with one test and no guard on
-// its counter keeps that exit. That is the walk without this rule. A loop
-// with several tests keeps only the exit of the test that ends it first.
-// That is the exit this spec's head stands for.
-// One case falls outside ASSUME-2, and this spec does not cover it. A guard
-// that compares the counter with a constant against a last value over a bound
-// is open, as i > 0 is against n-1. Then loop.at keeps the exits.
+// its counter keeps that exit. That is the walk without this rule. A guard
+// against a constant, when the bound is handed in, holds on the last attempt
+// for some bounds and not others. An example is i < 2 against n-1. The rule
+// reads it for a large bound, past the constant. MAX_ATTEMPTS then stands
+// for that bound, not for every bound. i < 2 is silent for a bound of 2,
+// where the last attempt logs. That is a missed report, not a false one.
+// i > 0 is reported for a bound of 1, where it never logs. One attempt is
+// not a retry, and this spec does not cover that report. A loop with several
+// tests keeps only the exit of the test that ends it first. That is the exit
+// this spec's head stands for.
 fsl 5
 spec LoopExit {
   const MAX_ATTEMPTS = 3

@@ -233,9 +233,8 @@ func otherCounter(h *ssa.BasicBlock, phi *ssa.Phi, test ssa.Value, body map[*ssa
 // logsAt reports whether the log block b may run on the last iteration
 // of the loop headed by h, whose counter is phi: each branch inside the loop
 // that decides b and reads the counter, other than the loop's own tests, leads
-// to b at the counter's last value, or may for some bound. A branch the rule
-// cannot read, such as i%2 == 0, is taken to lead away, which leans toward
-// silence.
+// to b at the counter's last value. A branch the rule cannot read, such as
+// i%2 == 0, is taken to lead away, which leans toward silence.
 func logsAt(h, b *ssa.BasicBlock, phi *ssa.Phi, lc counted, body map[*ssa.BasicBlock]bool) bool {
 	for d := b; d != nil && d != h; d = d.Idom() {
 		if len(d.Preds) != 1 {
@@ -254,13 +253,7 @@ func logsAt(h, b *ssa.BasicBlock, phi *ssa.Phi, lc counted, body map[*ssa.BasicB
 		if !Uses(iff.Cond, phi, make(map[ssa.Value]bool)) {
 			continue
 		}
-		v, ok, open := at(iff.Cond, phi, lc.last)
-		if open {
-			// The branch leads to the log for some bound. The walk
-			// follows it there, as it follows any branch it cannot rule
-			// out.
-			continue
-		}
+		v, ok := at(iff.Cond, phi, lc.last, lc.step)
 		if !ok || v != (d == p.Succs[0]) {
 			return false
 		}
@@ -340,6 +333,7 @@ type counted struct {
 	tests  []exitTest
 	isTest map[*ssa.BasicBlock]bool
 	last   Lin
+	step   int64
 	known  bool
 }
 
@@ -379,7 +373,7 @@ func counterOf(h, b *ssa.BasicBlock, phi *ssa.Phi, body map[*ssa.BasicBlock]bool
 		}
 		step = l.off
 	}
-	lc := counted{isTest: make(map[*ssa.BasicBlock]bool), known: step != 0}
+	lc := counted{isTest: make(map[*ssa.BasicBlock]bool), step: step, known: step != 0}
 	for _, p := range h.Parent().Blocks {
 		cmp, exit, in0, ok := exitOf(p, body)
 		if !ok || (!Uses(cmp.X, phi, map[ssa.Value]bool{}) && !Uses(cmp.Y, phi, map[ssa.Value]bool{})) {
@@ -452,46 +446,66 @@ func LastOf(cmp *ssa.BinOp, stay bool, phi *ssa.Phi, step int64, after bool) (Li
 }
 
 // at evaluates the comparison test with phi at the value last, when both
-// sides are linear over one base. open reports that both sides are linear
-// but over different bases, as i > 0 is against a last value of n-1: it holds
-// for some bound and fails for another.
-func at(test ssa.Value, phi *ssa.Phi, last Lin) (v, ok, open bool) {
+// sides are linear over one base. Against a last value over a bound, as n-1
+// is, a guard that compares the counter with a constant is read for a bound
+// far from where the counter starts. The counter moves by step, so its last
+// value grows without limit when step is 1 and falls when it is -1. i > 0
+// then holds and i < 2 fails, as each does for all but a few bounds. Against
+// another bound, as i < *last is, or a bound in the guard against a constant
+// last value, as i < m is against 2, nothing is known.
+func at(test ssa.Value, phi *ssa.Phi, last Lin, step int64) (v, ok bool) {
 	cmp, isCmp := test.(*ssa.BinOp)
 	if !isCmp {
-		return false, false, false
+		return false, false
 	}
-	sub := func(l Lin) Lin {
-		if l.base == ssa.Value(phi) {
-			return Lin{base: last.base, off: last.off + l.off}
-		}
-		return l
+	op, lhs, rhs := cmp.Op, linear(cmp.X), linear(cmp.Y)
+	if lhs.base != ssa.Value(phi) {
+		lhs, rhs = rhs, lhs
+		op = cond.Flip(op)
 	}
-	onPhi := linear(cmp.X).base == ssa.Value(phi) || linear(cmp.Y).base == ssa.Value(phi)
-	lhs, rhs := sub(linear(cmp.X)), sub(linear(cmp.Y))
-	if !onPhi {
-		return false, false, false
+	if lhs.base != ssa.Value(phi) {
+		return false, false
+	}
+	lhs = Lin{base: last.base, off: last.off + lhs.off}
+	if rhs.base == ssa.Value(phi) {
+		rhs = Lin{base: last.base, off: last.off + rhs.off}
 	}
 	if lhs.base != rhs.base && !cond.Same(lhs.base, rhs.base, 0) {
-		// Against a constant, a guard holds on the last value for some
-		// bound: i > 0 does whenever the loop runs twice. Against another
-		// bound, as i < *last is, nothing is known.
-		open := (lhs.base == nil || rhs.base == nil) && !Uses(lhs.base, phi, map[ssa.Value]bool{}) && !Uses(rhs.base, phi, map[ssa.Value]bool{})
-		return false, false, open
+		if lhs.base == nil || rhs.base != nil || Uses(lhs.base, phi, map[ssa.Value]bool{}) {
+			return false, false
+		}
+		return farHolds(op, step)
 	}
 	d := lhs.off - rhs.off
-	switch cmp.Op {
+	switch op {
 	case token.EQL:
-		return d == 0, true, false
+		return d == 0, true
 	case token.NEQ:
-		return d != 0, true, false
+		return d != 0, true
 	case token.LSS:
-		return d < 0, true, false
+		return d < 0, true
 	case token.LEQ:
-		return d <= 0, true, false
+		return d <= 0, true
 	case token.GTR:
-		return d > 0, true, false
+		return d > 0, true
 	case token.GEQ:
-		return d >= 0, true, false
+		return d >= 0, true
 	}
-	return false, false, false
+	return false, false
+}
+
+// farHolds is the value of counter op c, for a constant c, once the counter
+// is far past c in the direction it steps.
+func farHolds(op token.Token, step int64) (v, ok bool) {
+	switch op {
+	case token.EQL:
+		return false, true
+	case token.NEQ:
+		return true, true
+	case token.LSS, token.LEQ:
+		return step < 0, step != 0
+	case token.GTR, token.GEQ:
+		return step > 0, step != 0
+	}
+	return false, false
 }
