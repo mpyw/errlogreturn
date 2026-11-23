@@ -81,12 +81,9 @@ func Exits(b *ssa.BasicBlock) map[[2]*ssa.BasicBlock]bool {
 // before the loop is one cell, which the body stores into or hands to a
 // closure.
 func cells(h *ssa.BasicBlock, body map[*ssa.BasicBlock]bool) []ssa.Value {
+	// v is an Alloc, or a φ-node of Allocs, so its type is always a pointer.
 	numeric := func(v ssa.Value) bool {
-		pt, ok := v.Type().Underlying().(*types.Pointer)
-		if !ok {
-			return false
-		}
-		bt, ok := pt.Elem().Underlying().(*types.Basic)
+		bt, ok := v.Type().Underlying().(*types.Pointer).Elem().Underlying().(*types.Basic)
 		return ok && bt.Info()&types.IsNumeric != 0
 	}
 	var out []ssa.Value
