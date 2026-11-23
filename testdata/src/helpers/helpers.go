@@ -141,3 +141,132 @@ func helperLogsOther() error {
 	logErr(errIgnored)
 	return err
 }
+
+// ===== helpers that log a merge of their argument and another error =====
+
+// The helper logs err or other, whichever the flag picks. It logs err only
+// when the flag is false, so it is not a logger of either.
+func logEither(err, other error, useOther bool) {
+	e := err
+	if useOther {
+		e = other
+	}
+	log.Println(e)
+}
+
+func callsLogEither() error {
+	err := do()
+	logEither(err, errIgnored, true)
+	return err
+}
+
+var errPublic = errors.New("internal error")
+
+// The helper logs a public error in place of an internal one.
+func logPublic(err error, internal bool) {
+	if internal {
+		err = errPublic
+	}
+	log.Println(err)
+}
+
+func callsLogPublic() error {
+	err := do()
+	logPublic(err, true)
+	return err
+}
+
+// The same merge through a variable whose address is taken: the log reads
+// one of two stores.
+func logEitherStored(err, other error, useOther bool) {
+	e := err
+	p := &e
+	if useOther {
+		*p = other
+	}
+	log.Println(e)
+}
+
+func callsLogEitherStored() error {
+	err := do()
+	logEitherStored(err, errIgnored, true)
+	return err
+}
+
+// Every edge of the merge carries err, so the helper logs it on every path.
+func logWrappedOrNot(err error, wrap bool) { // want logWrappedOrNot:"logs p0"
+	e := err
+	if wrap {
+		e = fmt.Errorf("wrapped: %w", err)
+	}
+	log.Println(e)
+}
+
+func callsLogWrappedOrNot() error {
+	err := do()
+	logWrappedOrNot(err, true) // want `error is logged by logWrappedOrNot`
+	return err
+}
+
+// A loop that wraps the error again on each pass still carries it.
+func logWrappedTimes(err error, n int) { // want logWrappedTimes:"logs p0"
+	for i := 0; i < n; i++ {
+		err = fmt.Errorf("again: %w", err)
+	}
+	log.Println(err)
+}
+
+func callsLogWrappedTimes() error {
+	err := do()
+	logWrappedTimes(err, 2) // want `error is logged by logWrappedTimes`
+	return err
+}
+
+// Every merge carries err, but each one reads the one before it inside a
+// loop. What a merge carries then assumes the loop's own merge, so it is met
+// again from each edge, twice as often per merge. The trace gives up past its
+// bound, and the helper is not counted.
+func logManyMerges(err error, n int, c []bool) {
+	for i := 0; i < n; i++ {
+		if c[0] {
+			err = fmt.Errorf("0: %w", err)
+		}
+		if c[1] {
+			err = fmt.Errorf("1: %w", err)
+		}
+		if c[2] {
+			err = fmt.Errorf("2: %w", err)
+		}
+		if c[3] {
+			err = fmt.Errorf("3: %w", err)
+		}
+		if c[4] {
+			err = fmt.Errorf("4: %w", err)
+		}
+		if c[5] {
+			err = fmt.Errorf("5: %w", err)
+		}
+		if c[6] {
+			err = fmt.Errorf("6: %w", err)
+		}
+		if c[7] {
+			err = fmt.Errorf("7: %w", err)
+		}
+		if c[8] {
+			err = fmt.Errorf("8: %w", err)
+		}
+		if c[9] {
+			err = fmt.Errorf("9: %w", err)
+		}
+		if c[10] {
+			err = fmt.Errorf("10: %w", err)
+		}
+		if c[11] {
+			err = fmt.Errorf("11: %w", err)
+		}
+		if c[12] {
+			err = fmt.Errorf("12: %w", err)
+		}
+	}
+	log.Println(err)
+}

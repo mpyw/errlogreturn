@@ -1660,3 +1660,42 @@ func receivedElement(ch chan [2]error) error {
 	log.Println((<-ch)[0])
 	return nil
 }
+
+// ===== What a logged value must carry =====
+
+// Merges in sequence: the second meets the first from each of its edges, and
+// reads it the second time as already met. Every edge carries err.
+func logWrappedTwice(err error, a, b bool) { // want logWrappedTwice:`^logs p0$`
+	e := err
+	if a {
+		e = fmt.Errorf("a: %w", e)
+	}
+	if b {
+		e = fmt.Errorf("b: %w", e)
+	}
+	log.Println(e)
+}
+
+// A variable that holds err on one path, and its zero value on the other,
+// does not carry err on every path.
+func logStoredOrZero(err error, c bool) {
+	var e error
+	p := &e
+	if c {
+		*p = err
+	}
+	log.Println(e)
+}
+
+type twoErrs struct{ a, b error }
+
+// A field written on every path is read, though the whole was written on
+// one path only.
+func logFieldAfterMerge(err error, ch chan twoErrs, c bool) { // want logFieldAfterMerge:`^logs p0$`
+	var s twoErrs
+	if c {
+		s = <-ch
+	}
+	s.a = err
+	log.Println(s)
+}

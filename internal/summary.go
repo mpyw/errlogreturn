@@ -337,8 +337,9 @@ func (c *checker) summaryLogs(fn *ssa.Function, ins []ssa.Value) []bool {
 			if !ok {
 				continue
 			}
-			got, _ := c.walkerInputs(fn, u.values, instr)
-			for in := range got {
+			// The logged value must carry the input. A merge of err
+			// and another error logs err only on some paths.
+			for in := range c.walkerMustInputs(fn, u.values, instr) {
 				if i, ok := pos[in]; ok {
 					gen[b.Index][i] = true
 				}
