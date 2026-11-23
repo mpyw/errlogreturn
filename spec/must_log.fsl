@@ -80,6 +80,8 @@ spec MustLog {
     helperRan
     and shape == IfNonNil
     and summarySaysLogs
+    and errorIsNonNil
+    and helperLogged
   }
   reachable IgnoresOtherConditions {
     helperRan
