@@ -127,6 +127,14 @@ spec PhiIdentity {
     and mergeEdge == some(Fresh)
     and not reported
   }
+  reachable MissedWhenSharedLoggedAfterMerge {
+    returned == some(ReturnsPhi)
+    and loggedShared
+    and not sharedLoggedBeforeMerge
+    and not loggedPhi
+    and returnedWasLogged
+    and not reported
+  }
   reachable MissedWhenEdgeWasShared {
     loggedOnlyPhiAndReturnedShared()
     and mergeEdge == some(Shared)
