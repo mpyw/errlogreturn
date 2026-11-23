@@ -1,20 +1,20 @@
-// FAILS ON PURPOSE. This is the rule phi_identity.fsl replaced, and the
-// counterexample is the reason it was replaced.
+// FAILS ON PURPOSE. This is the rule that phi_identity.fsl replaced. The
+// counterexample is the reason for the change.
 //
 // The rule expands every φ-node it has not resolved to all of its edges. A log
-// of the φ-node then counts as a log of shared, whichever edge ran, and
+// of the φ-node then counts as a log of shared, whichever edge ran. So
 // returning shared is reported even when the new error was the one logged.
-// usememos/memos store/attachment.go logged a φ-node of a shared error and a
-// new one inside a loop, and was reported for this shape.
+// In usememos/memos, store/attachment.go logged a φ-node of a shared error and
+// a new one inside a loop. It was reported for this shape.
 //
-// The program and the analysis are those of phi_identity.fsl, except for the
-// last row of reports().
+// The program and the analysis are those of phi_identity.fsl. Only the last
+// row of ruleReports differs.
 //
-// The program merges two errors, and may log either one before returning:
+// The program merges two errors. It may log either one before it returns:
 //
-//   err := shared          edge A: an error defined before the merge
+//   err := shared          merge(Shared): an error defined before the merge
 //   if cond {
-//     err = do()           edge B: a new error
+//     err = do()           merge(Fresh): a new error
 //   }
 //   log(err)               logPhi: logs whichever edge ran
 //   return shared          or: return err
@@ -28,65 +28,81 @@
 fsl 5
 spec PhiExpand {
   enum Edge { Shared, Fresh }
-  enum Ret { RetShared, RetPhi }
+  enum ReturnedValue { ReturnsShared, ReturnsPhi }
 
   state {
-    taken: Option<Edge>,
-    loggedShared: Bool, sharedLoggedBeforeMerge: Bool, loggedPhi: Bool,
-    returned: Option<Ret>,
-    reported: Bool, doubled: Bool
+    mergeEdge: Option<Edge>,
+    loggedShared: Bool,
+    sharedLoggedBeforeMerge: Bool,
+    loggedPhi: Bool,
+    returned: Option<ReturnedValue>,
+    reported: Bool,
+    returnedWasLogged: Bool
   }
 
   init {
-    taken = none
-    loggedShared = false  sharedLoggedBeforeMerge = false  loggedPhi = false
+    mergeEdge = none
+    loggedShared = false
+    sharedLoggedBeforeMerge = false
+    loggedPhi = false
     returned = none
-    reported = false  doubled = false
+    reported = false
+    returnedWasLogged = false
   }
 
   action logShared() {
     requires returned == none
     loggedShared = true
-    if taken == none { sharedLoggedBeforeMerge = true }
+    if mergeEdge == none {
+      sharedLoggedBeforeMerge = true
+    }
   }
 
-  action merge(e: Edge) {
-    requires taken == none  requires returned == none
-    taken = some(e)
+  action merge(edge: Edge) {
+    requires mergeEdge == none
+    requires returned == none
+    mergeEdge = some(edge)
   }
 
   action logPhi() {
-    requires taken != none  requires returned == none
+    requires mergeEdge != none
+    requires returned == none
     loggedPhi = true
   }
 
   // Which error the φ-node holds at run time.
-  def phiIsShared() = taken == some(Shared)
+  def phiIsShared() = mergeEdge == some(Shared)
 
   // The ground truth: the returned error is one that was logged.
-  def returnsLogged(r: Ret) =
-    if r == RetShared then loggedShared or (loggedPhi and phiIsShared())
-    else (loggedShared and phiIsShared()) or loggedPhi
+  def returnsALoggedError(value: ReturnedValue) =
+    if value == ReturnsShared then
+      loggedShared or (loggedPhi and phiIsShared())
+    else
+      (loggedShared and phiIsShared()) or loggedPhi
 
-  // What the analysis reports, pairing each log with the return.
+  // What the analysis reports. It pairs each log with the return.
   //
   //   log shared,  return shared   the same value
   //   log shared,  return φ        only when the walk from the log entered the
   //                                merge, and the edge it took was shared
   //   log φ,       return φ        the same φ-node, by identity
   //   log φ,       return shared   always: shared is one of the φ-node's edges
-  def reports(r: Ret) =
-    if r == RetShared then loggedShared or loggedPhi
-    else (loggedShared and sharedLoggedBeforeMerge and phiIsShared()) or loggedPhi
+  def ruleReports(value: ReturnedValue) =
+    if value == ReturnsShared then
+      loggedShared or loggedPhi
+    else
+      (loggedShared and sharedLoggedBeforeMerge and phiIsShared())
+      or loggedPhi
 
-  action ret(r: Ret) {
-    requires taken != none  requires returned == none
-    returned = some(r)
-    reported = reports(r)
-    doubled = returnsLogged(r)
+  action returnError(value: ReturnedValue) {
+    requires mergeEdge != none
+    requires returned == none
+    returned = some(value)
+    reported = ruleReports(value)
+    returnedWasLogged = returnsALoggedError(value)
   }
 
   terminal { returned != none }
 
-  invariant NeverReportsAnUnloggedError { reported => doubled }
+  invariant NeverReportsAnUnloggedError { reported => returnedWasLogged }
 }

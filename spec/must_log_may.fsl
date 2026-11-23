@@ -1,11 +1,11 @@
 // FAILS ON PURPOSE. This models a may-analysis: a helper counts as logging
 // its argument when some path logs it. See must_log.fsl for the rule in use.
 //
-// A helper that logs only some errors, such as one that skips errors it
-// expects, would make every caller that returns the error a report, including
-// the calls where the helper logged nothing.
+// Some helpers log only some errors, such as one that skips the errors it
+// expects. A may-analysis makes every caller that returns the error a report.
+// That includes the calls where the helper logged nothing.
 //
-// The helper's shape is one of:
+// The helper has one of these shapes:
 //
 //   Always      log(err)
 //   IfNonNil    if err != nil { log(err) }, or: if err == nil { return }; log(err)
@@ -18,31 +18,47 @@ spec MustLogMay {
   enum Shape { Always, IfNonNil, IfOther, Recursive, Never }
 
   state {
-    ran: Bool, shape: Shape, nonNil: Bool, cond: Bool,
-    logged: Bool, summaryLogs: Bool
+    helperRan: Bool,
+    shape: Shape,
+    errorIsNonNil: Bool,
+    otherConditionHolds: Bool,
+    helperLogged: Bool,
+    summarySaysLogs: Bool
   }
 
   init {
-    ran = false  shape = Never  nonNil = false  cond = false
-    logged = false  summaryLogs = false
+    helperRan = false
+    shape = Never
+    errorIsNonNil = false
+    otherConditionHolds = false
+    helperLogged = false
+    summarySaysLogs = false
   }
 
-  // What running the helper once logs.
-  def logs(s: Shape, nn: Bool, c: Bool) =
-    s == Always or s == Recursive or (s == IfNonNil and nn) or (s == IfOther and c)
+  // What one run of the helper logs.
+  def helperLogs(helperShape: Shape, nonNil: Bool, conditionHolds: Bool) =
+    helperShape == Always
+    or helperShape == Recursive
+    or (helperShape == IfNonNil and nonNil)
+    or (helperShape == IfOther and conditionHolds)
 
   // What a may-analysis concludes: any path that logs is enough.
-  def summarized(s: Shape) = s != Never
+  def summaryCountsAsLogging(helperShape: Shape) = helperShape != Never
 
-  action run(s: Shape, nn: Bool, c: Bool) {
-    requires not ran
-    ran = true  shape = s  nonNil = nn  cond = c
-    logged = logs(s, nn, c)
-    summaryLogs = summarized(s)
+  action runHelper(helperShape: Shape, nonNil: Bool, conditionHolds: Bool) {
+    requires not helperRan
+    helperRan = true
+    shape = helperShape
+    errorIsNonNil = nonNil
+    otherConditionHolds = conditionHolds
+    helperLogged = helperLogs(helperShape, nonNil, conditionHolds)
+    summarySaysLogs = summaryCountsAsLogging(helperShape)
   }
 
-  terminal { ran }
+  terminal { helperRan }
 
-  // The property the caller's report rests on.
-  invariant ReportMeansLogged { ran and summaryLogs and nonNil => logged }
+  // The caller's report rests on this property.
+  invariant ReportMeansLogged {
+    helperRan and summarySaysLogs and errorIsNonNil => helperLogged
+  }
 }

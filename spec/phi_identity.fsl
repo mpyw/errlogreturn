@@ -1,10 +1,10 @@
 // A φ-node the path has not resolved is compared by identity.
 //
-// The program merges two errors, and may log either one before returning:
+// The program merges two errors. It may log either one before it returns:
 //
-//   err := shared          edge A: an error defined before the merge
+//   err := shared          merge(Shared): an error defined before the merge
 //   if cond {
-//     err = do()           edge B: a new error
+//     err = do()           merge(Fresh): a new error
 //   }
 //   log(err)               logPhi: logs whichever edge ran
 //   return shared          or: return err
@@ -16,86 +16,121 @@
 // after the log is resolved to the edge it came in on. A merge before the log
 // is not resolved, and the φ-node stands for itself.
 //
-// Being sound here costs completeness. When edge A ran, logPhi logged shared,
-// and returning shared hands it over again, but the analysis cannot know that
-// edge A ran. MissedWhenEdgeWasShared witnesses the report it gives up.
+// Being sound here costs completeness. When the Shared edge ran, logPhi logged
+// shared, and returning shared hands it over again. The analysis cannot know
+// which edge ran. MissedWhenEdgeWasShared witnesses the report it gives up.
 fsl 5
 spec PhiIdentity {
   enum Edge { Shared, Fresh }
-  enum Ret { RetShared, RetPhi }
+  enum ReturnedValue { ReturnsShared, ReturnsPhi }
 
   state {
-    taken: Option<Edge>,
-    loggedShared: Bool, sharedLoggedBeforeMerge: Bool, loggedPhi: Bool,
-    returned: Option<Ret>,
-    reported: Bool, doubled: Bool
+    mergeEdge: Option<Edge>,
+    loggedShared: Bool,
+    sharedLoggedBeforeMerge: Bool,
+    loggedPhi: Bool,
+    returned: Option<ReturnedValue>,
+    reported: Bool,
+    returnedWasLogged: Bool
   }
 
   init {
-    taken = none
-    loggedShared = false  sharedLoggedBeforeMerge = false  loggedPhi = false
+    mergeEdge = none
+    loggedShared = false
+    sharedLoggedBeforeMerge = false
+    loggedPhi = false
     returned = none
-    reported = false  doubled = false
+    reported = false
+    returnedWasLogged = false
   }
 
   action logShared() {
     requires returned == none
     loggedShared = true
-    if taken == none { sharedLoggedBeforeMerge = true }
+    if mergeEdge == none {
+      sharedLoggedBeforeMerge = true
+    }
   }
 
-  action merge(e: Edge) {
-    requires taken == none  requires returned == none
-    taken = some(e)
+  action merge(edge: Edge) {
+    requires mergeEdge == none
+    requires returned == none
+    mergeEdge = some(edge)
   }
 
   action logPhi() {
-    requires taken != none  requires returned == none
+    requires mergeEdge != none
+    requires returned == none
     loggedPhi = true
   }
 
   // Which error the φ-node holds at run time.
-  def phiIsShared() = taken == some(Shared)
+  def phiIsShared() = mergeEdge == some(Shared)
 
   // The ground truth: the returned error is one that was logged.
-  def returnsLogged(r: Ret) =
-    if r == RetShared then loggedShared or (loggedPhi and phiIsShared())
-    else (loggedShared and phiIsShared()) or loggedPhi
+  def returnsALoggedError(value: ReturnedValue) =
+    if value == ReturnsShared then
+      loggedShared or (loggedPhi and phiIsShared())
+    else
+      (loggedShared and phiIsShared()) or loggedPhi
 
-  // What the analysis reports, pairing each log with the return.
+  // What the analysis reports. It pairs each log with the return.
   //
   //   log shared,  return shared   the same value
   //   log shared,  return φ        only when the walk from the log entered the
   //                                merge, and the edge it took was shared
   //   log φ,       return φ        the same φ-node, by identity
   //   log φ,       return shared   never: which edge the φ-node took is unknown
-  def reports(r: Ret) =
-    if r == RetShared then loggedShared
-    else (loggedShared and sharedLoggedBeforeMerge and phiIsShared()) or loggedPhi
+  def ruleReports(value: ReturnedValue) =
+    if value == ReturnsShared then
+      loggedShared
+    else
+      (loggedShared and sharedLoggedBeforeMerge and phiIsShared())
+      or loggedPhi
 
-  action ret(r: Ret) {
-    requires taken != none  requires returned == none
-    returned = some(r)
-    reported = reports(r)
-    doubled = returnsLogged(r)
+  action returnError(value: ReturnedValue) {
+    requires mergeEdge != none
+    requires returned == none
+    returned = some(value)
+    reported = ruleReports(value)
+    returnedWasLogged = returnsALoggedError(value)
   }
 
   terminal { returned != none }
 
-  invariant NeverReportsAnUnloggedError { reported => doubled }
-  invariant ReportsOnlyOnReturn { (reported or doubled) => returned != none }
-  invariant SharedBeforeMergeWasLogged { sharedLoggedBeforeMerge => loggedShared }
+  invariant NeverReportsAnUnloggedError { reported => returnedWasLogged }
+  invariant ReportsOnlyOnReturn {
+    (reported or returnedWasLogged) => returned != none
+  }
+  invariant SharedBeforeMergeWasLogged {
+    sharedLoggedBeforeMerge => loggedShared
+  }
 
-  reachable ReportedByIdentity { reported and loggedPhi and returned == some(RetPhi) }
+  // Only the φ-node was logged, and shared was returned.
+  def loggedOnlyPhiAndReturnedShared() =
+    loggedPhi
+    and not loggedShared
+    and returned == some(ReturnsShared)
+
+  reachable ReportedByIdentity {
+    reported
+    and loggedPhi
+    and returned == some(ReturnsPhi)
+  }
   reachable ReportedThroughAResolvedMerge {
-    reported and not loggedPhi and returned == some(RetPhi)
+    reported
+    and not loggedPhi
+    and returned == some(ReturnsPhi)
   }
   reachable SilentWhenEdgeWasFresh {
-    loggedPhi and not loggedShared and taken == some(Fresh)
-    and returned == some(RetShared) and not reported
+    loggedOnlyPhiAndReturnedShared()
+    and mergeEdge == some(Fresh)
+    and not reported
   }
   reachable MissedWhenEdgeWasShared {
-    loggedPhi and not loggedShared and taken == some(Shared)
-    and returned == some(RetShared) and doubled and not reported
+    loggedOnlyPhiAndReturnedShared()
+    and mergeEdge == some(Shared)
+    and returnedWasLogged
+    and not reported
   }
 }
