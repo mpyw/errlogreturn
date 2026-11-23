@@ -161,6 +161,11 @@ func F(n int, m int) {
 	if _, ok := at(n, phi, Lin{base: n, off: -1}, 1); ok {
 		t.Error("At reads a value that is no comparison")
 	}
+	// The counter on both sides is read at the last value on both.
+	self := &ssa.BinOp{Op: token.LEQ, X: phi, Y: phi}
+	if v, ok := at(self, phi, Lin{base: n, off: -1}, 1); !v || !ok {
+		t.Errorf("At(i <= i) = %v, %v, want true, true", v, ok)
+	}
 	odd := &ssa.BinOp{Op: token.AND, X: phi, Y: n}
 	if _, ok := at(odd, phi, Lin{base: n, off: -1}, 1); ok {
 		t.Error("At reads a bit mask")
