@@ -2194,3 +2194,102 @@ Y:
 	g0()
 	goto L
 }
+
+// ===== A counter a closure captures =====
+
+// A closure that reads the counter keeps it in memory, not in a φ-node.
+func retryClosureReadsCounter(max int, wait func(func() int)) error {
+	var err error
+	for attempt := 1; attempt <= max; attempt++ {
+		err = do()
+		if err == nil {
+			return nil
+		}
+		if attempt == max {
+			break
+		}
+		log.Println(err)
+		wait(func() int { return attempt })
+	}
+	return err
+}
+
+func retryClosureStepsCounter(max int) error {
+	var err error
+	for attempt := 1; attempt <= max; {
+		err = do()
+		if err == nil {
+			return nil
+		}
+		if attempt == max {
+			break
+		}
+		log.Println(err)
+		func() { attempt++ }()
+	}
+	return err
+}
+
+// A counter declared before the loop is one local for every iteration.
+func retryClosureOuterCounter(max int, wait func(func() int)) error {
+	var err error
+	attempt := 1
+	for attempt <= max {
+		err = do()
+		if err == nil {
+			return nil
+		}
+		if attempt == max {
+			break
+		}
+		log.Println(err)
+		wait(func() int { return attempt })
+		attempt++
+	}
+	return err
+}
+
+// The same loop with the counter in a register.
+func retryRegisterCounter(max int, wait func(int)) error {
+	var err error
+	for attempt := 1; attempt <= max; attempt++ {
+		err = do()
+		if err == nil {
+			return nil
+		}
+		if attempt == max {
+			break
+		}
+		log.Println(err)
+		wait(attempt)
+	}
+	return err
+}
+
+// A guard on a counter in memory cannot be read. The README lists this as
+// a missed report.
+func retryClosureGuardsLast(n int, wait func(func() int)) error {
+	var err error
+	for i := 0; i < n; i++ {
+		err = do()
+		if i == n-1 {
+			slog.Warn("giving up", "err", err)
+		}
+		wait(func() int { return i })
+	}
+	return err
+}
+
+// The last attempt is logged and leaves the loop.
+func retryClosureLogsLast(max int, wait func(func() int)) error {
+	var err error
+	for attempt := 1; attempt <= max; attempt++ {
+		err = do()
+		if err == nil {
+			return nil
+		}
+		log.Println(err) // want `error is logged here`
+		wait(func() int { return attempt })
+	}
+	return err
+}

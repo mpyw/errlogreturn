@@ -39,14 +39,14 @@
 // correctly. The functions loop.counterOf, loop.LastOf and loop.at read only
 // a counter that steps by 1 or -1 and is compared with one bound. A test or a
 // guard they cannot read drops the exits. That only adds silence, so this
-// spec does not need to justify it. A loop with several tests keeps only the
-// exit of the test that ends it first. That is the exit this spec's head
-// stands for.
-// Two cases fall outside ASSUME-2, and this spec does not cover them. A guard
+// spec does not need to justify it. A counter kept in memory, such as one a
+// closure captures, is such a counter. A loop with one test and no guard on
+// its counter keeps that exit. That is the walk without this rule. A loop
+// with several tests keeps only the exit of the test that ends it first.
+// That is the exit this spec's head stands for.
+// One case falls outside ASSUME-2, and this spec does not cover it. A guard
 // that compares the counter with a constant against a last value over a bound
-// is open, as i > 0 is against n-1. Then loop.at keeps the exits. A counter
-// that is not a φ-node, such as one a closure captures, is not found. Then
-// every exit stays.
+// is open, as i > 0 is against n-1. Then loop.at keeps the exits.
 fsl 5
 spec LoopExit {
   const MAX_ATTEMPTS = 3

@@ -534,6 +534,25 @@ return err
 <td>
 
 ```go
+var err error
+for i := 0; i < n; i++ {
+	err = load()
+	if i == n-1 {
+		slog.Warn("giving up", "err", err)
+	}
+	wait(func() int { return i })
+}
+return err
+```
+
+</td>
+<td>⚠️</td>
+<td>A closure captures <code>i</code>, so <code>i</code> lives in memory, and a call could change it. Its tests cannot be evaluated. A loop with no such guard is still reported</td>
+</tr>
+<tr>
+<td>
+
+```go
 type Reporter interface {
 	Report(msg string, args ...any)
 }
