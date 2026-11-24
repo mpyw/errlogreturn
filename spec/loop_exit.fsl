@@ -29,9 +29,9 @@
 // lets the last attempt log. So the report the rule leaves standing is
 // genuine.
 //
-// Staying silent never produces a false report. So the rule cannot break
-// NeverReportsAnUnloggedError in loop_exit_naive.fsl. What needs proving is
-// that the silence is right.
+// Staying silent never produces a false report. So the rule cannot reach
+// the state of ReportsAnUnloggedError in loop_exit_naive.fsl. What needs
+// proving is that the silence is right.
 //
 // ASSUME-1: MAX_ATTEMPTS bounds the number of attempts. It is a modeling
 // bound, not a claim about loops.

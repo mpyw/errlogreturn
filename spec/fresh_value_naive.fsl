@@ -1,5 +1,5 @@
-// FAILS ON PURPOSE. This is the rule that fresh_value.fsl replaced. The
-// counterexample is the reason for the change.
+// This is the rule that fresh_value.fsl replaced. The witness of
+// ReportsAFreshValue is the reason for the change.
 //
 // The rule compares SSA values and nothing else. A call in a loop body is one
 // SSA value in every iteration. So an error logged in one iteration matches a
@@ -71,5 +71,7 @@ spec FreshValueNaive {
     or (location == Define and currentError == MAX_ITERATIONS)
   }
 
-  invariant NeverReportsAFreshValue { reported => returnedWasLogged }
+  // The negation of fresh_value.fsl's NeverReportsAFreshValue. The witness
+  // shows that this rule is wrong.
+  reachable ReportsAFreshValue { not (reported => returnedWasLogged) }
 }

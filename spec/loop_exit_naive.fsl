@@ -1,5 +1,5 @@
-// FAILS ON PURPOSE. This is the rule that loop_exit.fsl replaced. The
-// counterexample is the reason for the change.
+// This is the rule that loop_exit.fsl replaced. The witness of
+// ReportsAnUnloggedError is the reason for the change.
 //
 // The walk follows every edge after the log. That includes the exit of the
 // loop condition, tested at the head or at the bottom of the body. In the
@@ -78,5 +78,7 @@ spec LoopExitNaive {
 
   terminal { location == Returned }
 
-  invariant NeverReportsAnUnloggedError { reported => returnedWasLogged }
+  // The negation of "never reports an unlogged error". The witness shows
+  // that this rule is wrong.
+  reachable ReportsAnUnloggedError { not (reported => returnedWasLogged) }
 }
