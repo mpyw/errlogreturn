@@ -9,7 +9,7 @@ They check the **design**, not the implementation. Each one models a rule agains
 | Spec | Claim |
 | --- | --- |
 | `fresh_value.fsl` | A value defined again after the log is a new value. A loop never matches one iteration's logged error with the next one's returned error. Every error logged and returned in one iteration is still reported |
-| `phi_identity.fsl` | A φ-node the path has not resolved is compared by identity. The rule never reports an error that was not logged. A merge the walk enters after the log is still resolved and reported |
+| `phi_identity.fsl` | A φ-node the path has not resolved is compared by identity. The rule never reports an error that was not logged. It never reads the edge a merge took unless a walk from a log entered that merge. A merge the walk enters after the log is still resolved and reported |
 | `must_log.fsl` | A helper counts as logging only when every returning path logs its argument, or knows it is nil. A helper that logs a merge of its argument and another error does not count. Whenever that summary says "logs" and the error is not nil, the helper logged it |
 | `loop_exit.fsl` | What the loop rule relies on. The rule does not take the loop's exit when the guard that leads to the log fails on the counter's last value. Then the loop never exits right after a log, so the walk's exit is one the program cannot take. When the guard lets the last attempt log, the exit is real and the report is genuine |
 

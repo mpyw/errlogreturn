@@ -14,6 +14,9 @@
 //     return err
 //   }
 //
+// The program and the ground truth are hand copies of fresh_value.fsl's.
+// Nothing checks that they agree.
+//
 // ASSUME-1: MAX_ITERATIONS bounds the number of iterations. It is a modeling
 // bound, not a claim about loops.
 fsl 5

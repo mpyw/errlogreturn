@@ -8,7 +8,8 @@
 // a new one inside a loop. It was reported for this shape.
 //
 // The program and the analysis are those of phi_identity.fsl. Only the last
-// row of ruleReports differs.
+// row of ruleReports differs. They are hand copies, and nothing checks that
+// they agree.
 //
 // The program merges two errors. It may log either one before it returns:
 //
@@ -87,18 +88,20 @@ spec PhiExpand {
   //                                merge, and the edge it took was shared
   //   log φ,       return φ        the same φ-node, by identity
   //   log φ,       return shared   always: shared is one of the φ-node's edges
-  def ruleReports(value: ReturnedValue) =
+  // edgeIsShared says the merge took the Shared edge. The rule may read it only
+  // through a walk that entered the merge.
+  def ruleReports(value: ReturnedValue, edgeIsShared: Bool) =
     if value == ReturnsShared then
       loggedShared or loggedPhi
     else
-      (loggedShared and sharedLoggedBeforeMerge and phiIsShared())
+      (loggedShared and sharedLoggedBeforeMerge and edgeIsShared)
       or loggedPhi
 
   action returnError(value: ReturnedValue) {
     requires mergeEdge != none
     requires returned == none
     returned = some(value)
-    reported = ruleReports(value)
+    reported = ruleReports(value, phiIsShared())
     returnedWasLogged = returnsALoggedError(value)
   }
 

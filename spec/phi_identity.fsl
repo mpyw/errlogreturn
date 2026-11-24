@@ -81,29 +81,36 @@ spec PhiIdentity {
   //                                merge, and the edge it took was shared
   //   log φ,       return φ        the same φ-node, by identity
   //   log φ,       return shared   never: which edge the φ-node took is unknown
-  def ruleReports(value: ReturnedValue) =
+  // edgeIsShared says the merge took the Shared edge. The rule may read it only
+  // through a walk that entered the merge.
+  def ruleReports(value: ReturnedValue, edgeIsShared: Bool) =
     if value == ReturnsShared then
       loggedShared
     else
-      (loggedShared and sharedLoggedBeforeMerge and phiIsShared())
+      (loggedShared and sharedLoggedBeforeMerge and edgeIsShared)
       or loggedPhi
 
   action returnError(value: ReturnedValue) {
     requires mergeEdge != none
     requires returned == none
     returned = some(value)
-    reported = ruleReports(value)
+    reported = ruleReports(value, phiIsShared())
     returnedWasLogged = returnsALoggedError(value)
   }
 
   terminal { returned != none }
 
   invariant NeverReportsAnUnloggedError { reported => returnedWasLogged }
-  invariant ReportsOnlyOnReturn {
-    (reported or returnedWasLogged) => returned != none
-  }
-  invariant SharedBeforeMergeWasLogged {
-    sharedLoggedBeforeMerge => loggedShared
+
+  // The rule never reads an edge that no walk from a log entered. Only a log
+  // of shared before the merge has a walk that enters it. A rule that read
+  // the run-time edge here would be exact, and it would pass the invariant
+  // above. This is what keeps the rule to what the analysis can see.
+  invariant VerdictNeverReadsAnUnseenEdge {
+    not sharedLoggedBeforeMerge
+    => forall value: ReturnedValue {
+         ruleReports(value, true) == ruleReports(value, false)
+       }
   }
 
   // Only the φ-node was logged, and shared was returned.

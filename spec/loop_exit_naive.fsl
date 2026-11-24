@@ -16,6 +16,9 @@
 //   }
 //   return err
 //
+// This model is not a copy of loop_exit.fsl's. It numbers the errors to give
+// a ground truth. loop_exit.fsl tracks the guard instead.
+//
 // ASSUME-1: MAX_ATTEMPTS bounds the number of attempts. It is a modeling
 // bound, not a claim about loops.
 fsl 5
