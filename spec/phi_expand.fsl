@@ -1,5 +1,5 @@
-// FAILS ON PURPOSE. This is the rule that phi_identity.fsl replaced. The
-// counterexample is the reason for the change.
+// This is the rule that phi_identity.fsl replaced. The witness of
+// ReportsAnUnloggedError is the reason for the change.
 //
 // The rule expands every φ-node it has not resolved to all of its edges. A log
 // of the φ-node then counts as a log of shared, whichever edge ran. So
@@ -107,5 +107,7 @@ spec PhiExpand {
 
   terminal { returned != none }
 
-  invariant NeverReportsAnUnloggedError { reported => returnedWasLogged }
+  // The negation of phi_identity.fsl's NeverReportsAnUnloggedError. The
+  // witness shows that this rule is wrong.
+  reachable ReportsAnUnloggedError { not (reported => returnedWasLogged) }
 }

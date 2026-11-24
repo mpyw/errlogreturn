@@ -1,5 +1,6 @@
-// FAILS ON PURPOSE. This models a may-analysis: a helper counts as logging
-// its argument when some path logs it. See must_log.fsl for the rule in use.
+// This models a may-analysis: a helper counts as logging its argument when
+// some path logs it. See must_log.fsl for the rule in use. The witness of
+// SummarySaysLogsButHelperDidNot is the reason the rule is not this one.
 //
 // Some helpers log only some errors, such as one that skips the errors it
 // expects. A may-analysis makes every caller that returns the error a report.
@@ -59,8 +60,9 @@ spec MustLogMay {
 
   terminal { helperRan }
 
-  // The caller's report rests on this property.
-  invariant ReportMeansLogged {
-    helperRan and summarySaysLogs and errorIsNonNil => helperLogged
+  // The caller's report rests on must_log.fsl's ReportMeansLogged. This is its
+  // negation. The witness shows that a may-analysis is wrong.
+  reachable SummarySaysLogsButHelperDidNot {
+    not (helperRan and summarySaysLogs and errorIsNonNil => helperLogged)
   }
 }

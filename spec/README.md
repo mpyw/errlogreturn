@@ -15,11 +15,11 @@ They check the **design**, not the implementation. Each one models a rule agains
 
 Each of them also witnesses what it gives up. `phi_identity.fsl` misses a report when the φ-node took the shared edge. `must_log.fsl` misses a recursive helper, whose recursive call reads an empty summary. It also misses a merge that took the argument's edge.
 
-## The four that fail
+## The four replaced rules
 
-These are not regressions. Each models the rule that the matching proved spec replaced, and its counterexample is the reason for the change.
+Each models the rule that the matching proved spec replaced. Each holds one `reachable` that negates the property the old rule breaks. Its witness is the false report, and that report is the reason for the change.
 
-| Spec | Rule it models | Counterexample |
+| Spec | Rule it models | Witness |
 | --- | --- | --- |
 | `fresh_value_naive.fsl` | SSA values are compared, and nothing else | An error logged in one iteration matches the new error returned in the next. woodpecker's `cli/pipeline/purge.go` was reported for this |
 | `phi_expand.fsl` | An unresolved φ-node stands for all of its edges | The new error is logged through the φ-node, and returning the shared error is reported. usememos/memos `store/attachment.go` was reported for this shape |
@@ -32,4 +32,4 @@ These are not regressions. Each models the rule that the matching proved spec re
 ./verify.sh
 ```
 
-The script reads each verdict from `fslc`'s JSON, never from its exit code. The proved specs must be `proved` under induction. The failing ones must be `violated` on the named invariant. A spec in the directory that is named in neither list fails the run.
+The script reads each verdict from `fslc`'s JSON, never from its exit code. The proved specs must be `proved` under induction. The four replaced rules have no invariant left to prove, so they run as a bounded check to depth 8, and must be `verified`. An unwitnessed reachable makes that run fail. A spec in the directory that is named in neither list fails the run.
