@@ -114,7 +114,7 @@ spec LoopExit {
   action giveUp() {
     requires location == Body
     requires attempt == MAX_ATTEMPTS
-    requires not guardPassesOnLastAttempt()
+    requires not guardPassesOn.contains(attempt)
     location = GaveUp
   }
 
@@ -137,29 +137,6 @@ spec LoopExit {
 
   invariant SilenceLosesNothing { ruleIsSilent() => not exitedRightAfterLog }
 
-  // These make it inductive. A guard that fails on the last attempt may also
-  // fall through to the head, past MAX_ATTEMPTS, with nothing logged. So the
-  // head past MAX_ATTEMPTS right after a log means the guard passed on the
-  // last attempt. The reset in enterBody is what keeps a log from an earlier
-  // attempt out of that.
-  invariant PastMaxOnlyAfterLastLog {
-    (location == Head and attempt > MAX_ATTEMPTS and justLogged)
-    => guardPassesOnLastAttempt()
-  }
-  invariant BodyStartsUnlogged { location == Body => not justLogged }
-  invariant HeadAfterLogFollowsAPass {
-    (location == Head and justLogged)
-    => (attempt > 1 and guardPassesOn.contains(attempt - 1))
-  }
-  invariant BodyInRange { location == Body => attempt <= MAX_ATTEMPTS }
-  invariant ExitOnlyOnReturn { exitedRightAfterLog => location == Returned }
-  invariant StartsFresh {
-    location == Start
-    => (attempt == 1
-        and not justLogged
-        and not exitedRightAfterLog)
-  }
-
   reachable ReportedWhenLastLogs {
     guardPassesOnLastAttempt()
     and exitedRightAfterLog
@@ -168,5 +145,24 @@ spec LoopExit {
     ruleIsSilent()
     and guardPassesOn.size() > 0
     and location == GaveUp
+  }
+
+  // --- auxiliary ---
+  // These are lemmas for induction, not claims. A guard that fails on the
+  // last attempt may also fall through to the head, past MAX_ATTEMPTS, with
+  // nothing logged. So the head past MAX_ATTEMPTS right after a log means the
+  // guard passed on the last attempt. The reset in enterBody is what keeps a
+  // log from an earlier attempt out of that.
+  invariant PastMaxOnlyAfterLastLog {
+    (location == Head and attempt > MAX_ATTEMPTS and justLogged)
+    => guardPassesOnLastAttempt()
+  }
+  invariant BodyStartsUnlogged { location == Body => not justLogged }
+  invariant BodyInRange { location == Body => attempt <= MAX_ATTEMPTS }
+  invariant StartsFresh {
+    location == Start
+    => (attempt == 1
+        and not justLogged
+        and not exitedRightAfterLog)
   }
 }

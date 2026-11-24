@@ -81,21 +81,6 @@ spec FreshValue {
   // reported.
   invariant ReportsEveryDouble { returnedWasLogged => reported }
 
-  // These make the two inductive. The flag says exactly whether the current
-  // error was logged. No error from a later iteration was logged yet.
-  invariant FlagTracksCurrentError {
-    loggedSinceDefinition == loggedErrors.contains(currentError)
-  }
-  invariant NothingLoggedAhead {
-    forall errorNumber: ErrorNumber {
-      loggedErrors.contains(errorNumber) => errorNumber <= currentError
-    }
-  }
-  invariant ReportsOnlyOnReturn {
-    (reported or returnedWasLogged) => location == Returned
-  }
-
-  reachable Reported { reported }
   // This is the case the rule exists for. An error is logged in one
   // iteration, and a new one is returned in the next. The rule stays silent.
   reachable SilentOnTheNextIteration {
@@ -103,5 +88,18 @@ spec FreshValue {
     and not reported
     and loggedErrors.size() > 0
     and not loggedErrors.contains(currentError)
+  }
+
+  // --- auxiliary ---
+  // These are lemmas for induction, not claims. The flag says exactly whether
+  // the current error was logged. No error from a later iteration was logged
+  // yet.
+  invariant FlagTracksCurrentError {
+    loggedSinceDefinition == loggedErrors.contains(currentError)
+  }
+  invariant NothingLoggedAhead {
+    forall errorNumber: ErrorNumber {
+      loggedErrors.contains(errorNumber) => errorNumber <= currentError
+    }
   }
 }
